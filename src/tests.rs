@@ -27,6 +27,17 @@ fn iter_vs_readhead(v: Vec<usize>, out: usize) -> bool {
     m == mp
 }
 
+#[quickcheck]
+fn filter_vs_parallel_filter(v: Vec<usize>) -> bool {
+    let m: Vec<_> = v.clone().into_iter().filter(|x| x % 2 == 0).collect();
+    let mp: Vec<_> = v
+        .clone()
+        .into_iter()
+        .parallel_filter(|x| x % 2 == 0)
+        .collect();
+
+    m == mp
+}
 #[test]
 #[should_panic]
 fn panic_always_1() {

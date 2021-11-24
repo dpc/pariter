@@ -11,6 +11,9 @@ pub use self::parallel_map::ParallelMap;
 mod readahead;
 pub use self::readahead::Readahead;
 
+mod parallel_filter;
+pub use self::parallel_filter::ParallelFilter;
+
 use lazy_static::lazy_static;
 
 type DefaultThreadPool = rusty_pool::ThreadPool;
@@ -51,14 +54,13 @@ impl ThreadPool for rusty_pool::ThreadPool {
 ///
 /// # TODO
 ///
-/// * `parallel_filter`
 /// * `parallel_for_each`
 /// * `parallel_flat_map`
 /// * possibly others
 ///
 /// PRs welcome
 pub trait IteratorExt {
-    /// Run map operation in prallel on multiple threads
+    /// Run `map` function in parallel on multiple threads
     ///
     /// Results will be returned in order.
     ///
@@ -72,6 +74,16 @@ pub trait IteratorExt {
         Self: Sized,
         Self: Iterator,
         F: FnMut(Self::Item) -> O;
+
+    /// Run `filter` function in parallel on multiple threads
+    ///
+    /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self, DefaultThreadPool>
+    where
+        Self: Sized,
+        Self: Iterator + Send,
+        F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
+        Self::Item: Send + 'static;
 
     // Run the current iterator in another thread and return elements
     // through a buffered channel.
@@ -113,6 +125,16 @@ where
         <Self as Iterator>::Item: Send + 'static,
     {
         Readahead::new(self, buffer_size, DEFAULT_POOL.clone())
+    }
+
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self, DefaultThreadPool>
+    where
+        Self: Sized,
+        Self: Iterator + Send,
+        F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
+        <Self as Iterator>::Item: Send + 'static,
+    {
+        ParallelFilter::new(self, DEFAULT_POOL.clone(), f)
     }
 }
 
