@@ -6,11 +6,11 @@ If you have:
 
 ```rust
 # fn step_a(x: usize) -> usize {
-#   x + x
+#   x * 7
 # }
 # 
-# fn step_b(x: usize) -> usize {
-#   x % 3
+# fn filter_b(x: &usize) -> bool {
+#   x % 2 == 0
 # }
 # 
 # fn step_c(x: usize) -> usize {
@@ -19,10 +19,9 @@ If you have:
 assert_eq!(
   (0..10)
     .map(step_a)
-    .map(step_b)
-    .filter(|x| *x != 1)
+    .filter(filter_b)
     .map(step_c).collect::<Vec<_>>(),
-    vec![1, 3, 1, 3, 1, 3, 1]
+    vec![1, 15, 29, 43, 57]
 );
 ```
 
@@ -30,45 +29,64 @@ You can change it to:
 
 ```rust
 use dpc_pariter::IteratorExt;
-#
 # fn step_a(x: usize) -> usize {
-#   x + x
+#   x * 7
 # }
 # 
-# fn step_b(x: usize) -> usize {
-#   x % 3
+# fn filter_b(x: &usize) -> bool {
+#   x % 2 == 0
 # }
 # 
 # fn step_c(x: usize) -> usize {
 #   x + 1
 # }
-
 assert_eq!(
   (0..10)
     .map(step_a)
-    .parallel_map(step_b)
-    .filter(|x| *x != 1)
-    .map(step_c).collect::<Vec<_>>(),
-    vec![1, 3, 1, 3, 1, 3, 1]
+    .filter(filter_b)
+    .parallel_map(step_c).collect::<Vec<_>>(),
+    vec![1, 15, 29, 43, 57]
 );
 ```
 
 and it will run faster (conditions apply), because
-`step_b` will run in parallel on multiple-threads.
+`step_c` will run in parallel on multiple-threads.
+
+Or you can try even more features:
+
+```rust
+use dpc_pariter::IteratorExt;
+# fn step_a(x: usize) -> usize {
+#   x * 7
+# }
+# 
+# fn filter_b(x: &usize) -> bool {
+#   x % 2 == 0
+# }
+# 
+# fn step_c(x: usize) -> usize {
+#   x + 1
+# }
+assert_eq!(
+  (0..10)
+    .map(step_a)
+    .readahead(0)
+    .parallel_filter(filter_b)
+    .parallel_map(step_c).collect::<Vec<_>>(),
+    vec![1, 15, 29, 43, 57]
+);
+```
+
+
 
 ## Notable features
 
-* preserves order
-* lazy, somewhat like a normal iterator
-* handles worker thread panics
-* handles and allows control of backpressure
-* supports custom thread-pools
-* some knobs to control performance details
-
-## How it works
-
-Spawns bunch of worker threads, sends them work through one channel
-and collects responses through another.
+* order preserving
+* lazy, somewhat like a normal iterators
+* panic propagation
+* backpressure control
+* custom thread-pool support
+* other knobs to control performance & resource utilization
 
 ## When to use and alternatives
 
@@ -79,8 +97,8 @@ replacement.
 
 Sending iterator items through channels is fast, but not free.
 Make sure to parallelize operations that are heavy enough to justify
-overhead of sending data through the channel (twice). Especially
-operations involving IO are a good candidate to parallelize.
+overhead of sending data through channels. E.g.
+operations involving IO or some CPU-heavy computation.
 
 When you have a lot items **already stored in a collection**,
 that you want to "roll over and perform some mass computation"
