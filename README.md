@@ -2,7 +2,9 @@
 
 I keep needing one, so I wrote it.
 
-If you have:
+See [`IteratorExt`] for supported operations.
+
+In essence, if you have:
 
 ```rust
 # fn step_a(x: usize) -> usize {
@@ -51,33 +53,6 @@ assert_eq!(
 
 and it will run faster (conditions apply), because
 `step_c` will run in parallel on multiple-threads.
-
-Or you can try even more features:
-
-```rust
-use dpc_pariter::IteratorExt;
-# fn step_a(x: usize) -> usize {
-#   x * 7
-# }
-# 
-# fn filter_b(x: &usize) -> bool {
-#   x % 2 == 0
-# }
-# 
-# fn step_c(x: usize) -> usize {
-#   x + 1
-# }
-assert_eq!(
-  (0..10)
-    .map(step_a)
-    .readahead(0)
-    .parallel_filter(filter_b)
-    .parallel_map(step_c).collect::<Vec<_>>(),
-    vec![1, 15, 29, 43, 57]
-);
-```
-
-
 
 ## Notable features
 

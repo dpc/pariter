@@ -85,17 +85,17 @@ pub trait IteratorExt {
         F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
         Self::Item: Send + 'static;
 
-    // Run the current iterator in another thread and return elements
-    // through a buffered channel.
+    /// Run the current iterator in another thread and return elements
+    /// through a buffered channel.
+    ///
+    /// `buffer_size` defines the size of the output channel connecting
+    /// current and the inner thread.
     //
-    // `buffer_size` defines the size of the output channel connecting
-    // current and the inner thread.
-    //
-    // It's a common mistake to use large channel sizes needlessly
-    // in hopes of achieving higher performance. The only benefit
-    // large buffer size value provides is smooting out the variance
-    // of the inner iterator. The cost - wasting memory. In normal
-    // circumstances `0` is recommended.
+    /// It's a common mistake to use large channel sizes needlessly
+    /// in hopes of achieving higher performance. The only benefit
+    /// large buffer size value provides is smooting out the variance
+    /// of the inner iterator. The cost - wasting memory. In normal
+    /// circumstances `0` is recommended.
     fn readahead(self, buffer_size: usize) -> Readahead<Self, DefaultThreadPool>
     where
         Self: Iterator,
