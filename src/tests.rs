@@ -14,6 +14,19 @@ fn map_vs_map_parallel(v: Vec<usize>, threads: usize) -> bool {
     m == mp
 }
 
+#[quickcheck]
+fn iter_vs_readhead(v: Vec<usize>, out: usize) -> bool {
+    let m: Vec<_> = v.clone().into_iter().map(|x| x / 2).collect();
+    let mp: Vec<_> = v
+        .clone()
+        .into_iter()
+        .readahead(out % 32)
+        .map(|x| x / 2)
+        .collect();
+
+    m == mp
+}
+
 #[test]
 #[should_panic]
 fn panic_always_1() {
