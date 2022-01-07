@@ -1,18 +1,16 @@
-use crate::ThreadPool;
+use crate::{ParallelMap, Scope};
 
-use crate::ParallelMap;
-
-trait FilterMapFn<Item>: FnMut(Item) -> Option<Item> + Send + 'static {
-    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item>>
+trait FilterMapFn<Item>: FnMut(Item) -> Option<Item> + Send {
+    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item> + Send>
     where
         Self: 'a;
 }
 
 impl<F, Item> FilterMapFn<Item> for F
 where
-    F: FnMut(Item) -> Option<Item> + Clone + Send + 'static,
+    F: FnMut(Item) -> Option<Item> + Clone + Send,
 {
-    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item>>
+    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item> + Send>
     where
         Self: 'a,
     {
@@ -20,28 +18,27 @@ where
     }
 }
 
-impl<'a, Item: 'a> Clone for Box<dyn 'a + FilterMapFn<Item>> {
+impl<'a, Item: 'a> Clone for Box<dyn 'a + FilterMapFn<Item> + Send> {
     fn clone(&self) -> Self {
         (**self).clone_box()
     }
 }
 
 /// Like [`std::iter::Filter`] but multi-threaded
-pub struct ParallelFilter<I, TP>
+pub struct ParallelFilter<'env, 'scope, I>
 where
-    TP: ThreadPool,
     I: Iterator,
 {
     // the iterator we wrapped
-    iter: ParallelMap<I, Option<I::Item>, Box<dyn FilterMapFn<I::Item>>, TP>,
+    iter:
+        ParallelMap<'env, 'scope, I, Option<I::Item>, Box<dyn FilterMapFn<I::Item> + Send + 'env>>,
 }
 
-impl<I, TP> ParallelFilter<I, TP>
+impl<I> ParallelFilter<'static, 'static, I>
 where
-    TP: ThreadPool,
     I: Iterator,
 {
-    pub fn new<F>(iter: I, thread_pool: TP, mut f: F) -> ParallelFilter<I, TP>
+    pub fn new<F>(iter: I, mut f: F) -> ParallelFilter<'static, 'static, I>
     where
         F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
         I::Item: Send + 'static,
@@ -49,33 +46,42 @@ where
         ParallelFilter {
             iter: ParallelMap::new(
                 iter,
-                thread_pool,
                 Box::new(move |item| if (f)(&item) { Some(item) } else { None })
                     as Box<dyn FilterMapFn<I::Item> + Send + 'static>,
+            ),
+        }
+    }
+}
+
+impl<'env, 'scope, I> ParallelFilter<'env, 'scope, I>
+where
+    I: Iterator + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
+    'env: 'scope,
+{
+    pub fn new_scoped<F>(
+        iter: I,
+        scope: &'scope Scope<'env>,
+        mut f: F,
+    ) -> ParallelFilter<'env, 'scope, I>
+    where
+        F: FnMut(&I::Item) -> bool + Send + 'env + 'scope + Clone,
+    {
+        ParallelFilter {
+            iter: ParallelMap::new_scoped(
+                iter,
+                scope,
+                Box::new(move |item| if (f)(&item) { Some(item) } else { None })
+                    as Box<dyn FilterMapFn<I::Item> + Send + 'env>,
             ),
         }
     }
     /// Start the background workers eagerly, without waiting for a first [`Iterator::next`] call.
     ///
     /// See [`ParallelMap::started`].
-    pub fn started(self) -> Self
-    where
-        I::Item: Send + 'static,
-    {
+    pub fn started(self) -> Self {
         Self {
             iter: self.iter.started(),
-        }
-    }
-
-    /// Use a custom thread pool
-    ///
-    /// See [`ParallelMap::within`].
-    pub fn within<TP2>(self, thread_pool: TP2) -> ParallelFilter<I, TP2>
-    where
-        TP2: ThreadPool,
-    {
-        ParallelFilter {
-            iter: self.iter.within(thread_pool),
         }
     }
 
@@ -98,11 +104,11 @@ where
     }
 }
 
-impl<I, TP> Iterator for ParallelFilter<I, TP>
+impl<'env, 'scope, I> Iterator for ParallelFilter<'env, 'scope, I>
 where
-    I: Iterator,
-    I::Item: Send + 'static,
-    TP: ThreadPool,
+    I: Iterator + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
+    'env: 'scope,
 {
     type Item = I::Item;
 

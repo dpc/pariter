@@ -1,4 +1,4 @@
-use super::{DropIndicator, ThreadPool};
+use super::{DropIndicator, Scope};
 
 use std::{
     collections::HashMap,
@@ -8,24 +8,22 @@ use std::{
     },
 };
 
-struct ParallelMapInner<I, O, JH> {
+struct ParallelMapInner<I, O> {
     tx: Option<crossbeam_channel::Sender<(usize, I)>>,
     rx: crossbeam_channel::Receiver<(usize, O)>,
-    _thread_handle: Vec<JH>,
 }
 
 /// Like [`std::iter::Map`] but multi-threaded
-pub struct ParallelMap<I, O, F, TP>
+pub struct ParallelMap<'env, 'scope, I, O, F>
 where
-    TP: ThreadPool,
     I: Iterator,
 {
+    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + 'scope>,
+
     // the iterator we wrapped
     iter: I,
     // is `iter` exhausted
     iter_done: bool,
-    // thread pool to use
-    thread_pool: TP,
     // number of worker threads to use
     num_threads: usize,
     // max number of items in flight
@@ -41,20 +39,22 @@ where
     /// the function this map applies
     f: F,
     // stuff we created when we started workers
-    inner: Option<ParallelMapInner<I::Item, O, TP::JoinHandle>>,
+    inner: Option<ParallelMapInner<I::Item, O>>,
 }
 
-impl<I, O, F, TP> ParallelMap<I, O, F, TP>
+impl<I, O, F> ParallelMap<'static, 'static, I, O, F>
 where
-    TP: ThreadPool,
     I: Iterator,
+    F: Send + 'static,
 {
-    pub fn new(iter: I, thread_pool: TP, f: F) -> Self {
+    pub fn new(iter: I, f: F) -> Self {
         Self {
+            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'static>| {
+                std::thread::spawn(move || f());
+            }) as Box<dyn Fn(_) + 'static>,
             iter,
             iter_done: false,
             worker_panicked: Arc::new(AtomicBool::new(false)),
-            thread_pool,
             f,
             num_threads: 0,
             max_in_flight: 0,
@@ -64,32 +64,28 @@ where
             inner: None,
         }
     }
+}
 
-    /// Use a custom thread pool
-    ///
-    /// # Panics
-    ///
-    /// Changing thread-pool, after `started` was already called
-    /// is not supported and will panic.
-    pub fn within<TP2>(self, thread_pool: TP2) -> ParallelMap<I, O, F, TP2>
-    where
-        TP2: ThreadPool,
-    {
-        if self.inner.is_some() {
-            panic!("Already started. Must call `within` before `started`.");
-        }
+impl<'env, 'scope, I, O, F> ParallelMap<'env, 'scope, I, O, F>
+where
+    I: Iterator + 'env + 'scope,
+    F: 'env + 'scope + Send,
+{
+    pub fn new_scoped(iter: I, scope: &'scope Scope<'env>, f: F) -> Self {
+        Self {
+            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'env>| {
+                scope.spawn(move |_| f());
+            }) as Box<(dyn Fn(_) + 'scope)>,
 
-        ParallelMap {
-            iter: self.iter,
-            iter_done: self.iter_done,
-            thread_pool,
-            num_threads: self.num_threads,
-            max_in_flight: self.max_in_flight,
-            worker_panicked: self.worker_panicked,
-            next_rx_i: self.next_rx_i,
-            next_tx_i: self.next_tx_i,
-            out_of_order: self.out_of_order,
-            f: self.f,
+            iter,
+            iter_done: false,
+            worker_panicked: Arc::new(AtomicBool::new(false)),
+            f,
+            num_threads: 0,
+            max_in_flight: 0,
+            out_of_order: HashMap::new(),
+            next_tx_i: 0,
+            next_rx_i: 0,
             inner: None,
         }
     }
@@ -118,14 +114,13 @@ where
     }
 }
 
-impl<I, O, F, TP> ParallelMap<I, O, F, TP>
+impl<'env, 'scope, I, O, F> ParallelMap<'env, 'scope, I, O, F>
 where
-    I: Iterator,
-    I::Item: Send + 'static,
-    O: Send + 'static,
-    TP: ThreadPool,
-    F: FnMut(I::Item) -> O,
-    F: Clone + Send + 'static,
+    I: Iterator + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
+    O: Send + 'env + 'scope,
+    F: FnMut(I::Item) -> O + 'env + 'scope,
+    F: Clone + Send + 'env + 'scope,
 {
     /// Start the background workers eagerly, without waiting for a first [`Iterator::next`] call.
     ///
@@ -163,25 +158,22 @@ where
             self.inner = Some(ParallelMapInner {
                 tx: Some(in_tx),
                 rx: out_rx,
-                _thread_handle: (0..self.num_threads)
-                    .map(|_| {
-                        let in_rx = in_rx.clone();
-                        let out_tx = out_tx.clone();
-                        let mut f = self.f.clone();
-                        let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
-                        self.thread_pool.submit({
-                            move || {
-                                for (i, item) in in_rx.into_iter() {
-                                    // we ignore send failures, if the receiver is gone
-                                    // we just throw the work away
-                                    let _ = out_tx.send((i, (f)(item)));
-                                }
-                                drop_indicator.cancel();
-                            }
-                        })
-                    })
-                    .collect(),
             });
+            for _ in 0..self.num_threads {
+                let in_rx = in_rx.clone();
+                let out_tx = out_tx.clone();
+                let mut f = self.f.clone();
+                let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
+
+                (self.spawn_fn)(Box::new(move || {
+                    for (i, item) in in_rx.into_iter() {
+                        // we ignore send failures, if the receiver is gone
+                        // we just throw the work away
+                        let _ = out_tx.send((i, (f)(item)));
+                    }
+                    drop_indicator.cancel();
+                }) as Box<dyn FnOnce() + Send>);
+            }
             self.pump_tx();
         }
     }
@@ -212,14 +204,13 @@ where
     }
 }
 
-impl<I, O, F, TP> Iterator for ParallelMap<I, O, F, TP>
+impl<'env, 'scope, I, O, F> Iterator for ParallelMap<'env, 'scope, I, O, F>
 where
-    I: Iterator,
-    I::Item: Send + 'static,
-    O: Send + 'static,
-    TP: ThreadPool,
-    F: FnMut(I::Item) -> O,
-    F: Clone + Send + 'static,
+    I: Iterator + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
+    O: Send + 'env + 'scope,
+    F: FnMut(I::Item) -> O + 'env + 'scope,
+    F: Clone + Send,
 {
     type Item = O;
 

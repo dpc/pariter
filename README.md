@@ -54,13 +54,66 @@ assert_eq!(
 and it will run faster (conditions apply), because
 `step_c` will run in parallel on multiple-threads.
 
+Hitting a `borrowed value does not live long enough` error? Looks like you
+are iterating over values containing borrowed references. Sending them over
+to different threads for processing could lead to memory unsafety issues.
+But no problem, we got you covered.
+
+If the values you are iterating can be cheaply cloned, just try adding `.cloned()`
+
+If not, use scoped threads API:
+
+
+```rust
+use dpc_pariter::{IteratorExt, scope};
+# fn step_a(x: &usize) -> usize {
+#   *x * 7
+# }
+#
+# fn filter_b(x: &usize) -> bool {
+#   x % 2 == 0
+# }
+#
+# fn step_c(x: usize) -> usize {
+#   x + 1
+# }
+let v : Vec<_> = (0..10).collect();
+
+scope(|scope| {
+  assert_eq!(
+    v
+      .iter() // iterating over `&usize` now, `parallel_map` will not work
+      .parallel_map_scoped(scope, step_a)
+      .filter(filter_b)
+      .map(step_c).collect::<Vec<_>>(),
+      vec![1, 15, 29, 43, 57]
+  );
+});
+
+// or:
+
+assert_eq!(
+  scope(|scope| {
+  v
+    .iter()
+    .parallel_map_scoped(scope, step_a)
+    .filter(filter_b)
+    .map(step_c).collect::<Vec<_>>()}).expect("handle errors properly in production code"),
+    vec![1, 15, 29, 43, 57]
+);
+```
+
+The additional `scope` argument comes from [`crossbeam::thread::scope`] and is
+there to guarantee memory-safety. Just wrap your iterator chain in a `scope`
+wrapper that does not outlive the borrowed value, and everything will work smoothly.
+
 ## Notable features
 
 * order preserving
-* lazy, somewhat like a normal iterators
+* support for scoped threads (borrowing environment)
+* lazy, somewhat like single-threaded iterators
 * panic propagation
 * backpressure control
-* custom thread-pool support
 * other knobs to control performance & resource utilization
 
 ## When to use and alternatives

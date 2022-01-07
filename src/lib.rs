@@ -14,41 +14,8 @@ pub use self::readahead::Readahead;
 mod parallel_filter;
 pub use self::parallel_filter::ParallelFilter;
 
-use lazy_static::lazy_static;
-
-type DefaultThreadPool = rusty_pool::ThreadPool;
-
-lazy_static! {
-    static ref DEFAULT_POOL: rusty_pool::ThreadPool = rusty_pool::ThreadPool::new(
-        num_cpus::get(),
-        rusty_pool::MAX_SIZE,
-        std::time::Duration::from_secs(1)
-    );
-}
-
-/// An interface for any thread pool to be used with parallel iterator
-pub trait ThreadPool {
-    /// A thread-handle
-    ///
-    /// ParallelMap and other iterators will hold on to it, until they drop
-    type JoinHandle;
-
-    /// Submit a function to the thread pool
-    fn submit<F>(&mut self, f: F) -> Self::JoinHandle
-    where
-        F: FnOnce() + Send + 'static;
-}
-
-impl ThreadPool for rusty_pool::ThreadPool {
-    type JoinHandle = rusty_pool::JoinHandle<()>;
-
-    fn submit<F>(&mut self, f: F) -> Self::JoinHandle
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        self.evaluate(f)
-    }
-}
+pub use crossbeam::scope;
+pub use crossbeam::thread::Scope;
 
 /// Extension trait for [`std::iter::Iterator`] bringing parallel operations
 ///
@@ -69,21 +36,55 @@ pub trait IteratorExt {
     /// In that respect, `ParallelMap` behaves like every other iterator and is lazy.
     ///
     /// Default built-in thread pool will be used unless [`ParallelMap::threads`] is used.
-    fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O, F, DefaultThreadPool>
+    fn parallel_map<F, O>(self, f: F) -> ParallelMap<'static, 'static, Self, O, F>
     where
         Self: Sized,
         Self: Iterator,
-        F: FnMut(Self::Item) -> O;
+        O: 'static,
+        F: FnMut(Self::Item) -> O + Send + 'static;
 
     /// Run `filter` function in parallel on multiple threads
     ///
     /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self, DefaultThreadPool>
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
     where
         Self: Sized,
         Self: Iterator + Send,
         F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
         Self::Item: Send + 'static;
+
+    /// Scoped version of `parallel_map`
+    ///
+    /// Use when you want to process in parallel items that contain
+    /// borrowed references.
+    ///
+    /// See [`scope`].
+    fn parallel_map_scoped<'env, 'scope, F, O>(
+        self,
+        scope: &'scope Scope<'env>,
+        f: F,
+    ) -> ParallelMap<'env, 'scope, Self, O, F>
+    where
+        Self: Sized,
+        Self: Iterator + 'scope + 'env,
+        F: FnMut(Self::Item) -> O + 'scope + 'env + Send;
+
+    /// Scoped version of `parallel_filter`
+    ///
+    /// Use when you want to process in parallel items that contain
+    /// borrowed references.
+    ///
+    /// See [`scope`].
+    fn parallel_filter_scoped<'env, 'scope, F>(
+        self,
+        scope: &'scope Scope<'env>,
+        f: F,
+    ) -> ParallelFilter<'env, 'scope, Self>
+    where
+        Self: Sized,
+        Self: Iterator + Send + 'scope + 'env,
+        F: FnMut(&Self::Item) -> bool + Send + 'env + 'scope + Clone,
+        Self::Item: Send + 'env + 'scope;
 
     /// Run the current iterator in another thread and return elements
     /// through a buffered channel.
@@ -96,7 +97,7 @@ pub trait IteratorExt {
     /// large buffer size value provides is smooting out the variance
     /// of the inner iterator. The cost - wasting memory. In normal
     /// circumstances `0` is recommended.
-    fn readahead(self, buffer_size: usize) -> Readahead<Self, DefaultThreadPool>
+    fn readahead(self, buffer_size: usize) -> Readahead<Self>
     where
         Self: Iterator,
         Self: Sized,
@@ -108,33 +109,61 @@ impl<I> IteratorExt for I
 where
     I: Iterator,
 {
-    fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O, F, DefaultThreadPool>
+    fn parallel_map<F, O>(self, f: F) -> ParallelMap<'static, 'static, Self, O, F>
     where
         Self: Sized,
         Self: Iterator,
-        F: FnMut(I::Item) -> O,
+        O: 'static,
+        F: FnMut(I::Item) -> O + Send + 'static,
     {
-        ParallelMap::new(self, DEFAULT_POOL.clone(), f)
+        ParallelMap::new(self, f)
     }
 
-    fn readahead(self, buffer_size: usize) -> Readahead<Self, DefaultThreadPool>
-    where
-        Self: Iterator,
-        Self: Sized,
-        Self: Send + 'static,
-        <Self as Iterator>::Item: Send + 'static,
-    {
-        Readahead::new(self, buffer_size, DEFAULT_POOL.clone())
-    }
-
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self, DefaultThreadPool>
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
     where
         Self: Sized,
         Self: Iterator + Send,
         F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
         <Self as Iterator>::Item: Send + 'static,
     {
-        ParallelFilter::new(self, DEFAULT_POOL.clone(), f)
+        ParallelFilter::new(self, f)
+    }
+
+    fn parallel_map_scoped<'env, 'scope, F, O>(
+        self,
+        scope: &'scope Scope<'env>,
+        f: F,
+    ) -> ParallelMap<'env, 'scope, Self, O, F>
+    where
+        Self: Sized,
+        Self: Iterator + 'env + 'scope,
+        F: FnMut(I::Item) -> O + 'env + 'scope + Send,
+    {
+        ParallelMap::new_scoped(self, scope, f)
+    }
+
+    fn parallel_filter_scoped<'env, 'scope, F>(
+        self,
+        scope: &'scope Scope<'env>,
+        f: F,
+    ) -> ParallelFilter<'env, 'scope, Self>
+    where
+        Self: Sized,
+        Self: Iterator + Send + 'env + 'scope,
+        F: FnMut(&I::Item) -> bool + Send + 'env + 'scope + Clone,
+        <Self as Iterator>::Item: Send + 'env + 'scope,
+    {
+        ParallelFilter::new_scoped(self, scope, f)
+    }
+
+    fn readahead(self, buffer_size: usize) -> Readahead<Self>
+    where
+        Self: Iterator,
+        Self: Sized,
+        Self: Send + 'static,
+        <Self as Iterator>::Item: Send + 'static,
+    {
+        Readahead::new(self, buffer_size)
     }
 }
 

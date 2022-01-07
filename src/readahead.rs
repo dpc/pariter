@@ -2,62 +2,32 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::DropIndicator;
 
-use super::ThreadPool;
-
 /// And iterator that provides parallelism
 /// by running the inner iterator in another thread.
-pub struct Readahead<I, TP>
+pub struct Readahead<I>
 where
     I: Iterator,
-    TP: ThreadPool,
 {
     iter: Option<I>,
     iter_size_hint: (usize, Option<usize>),
-    thread_pool: TP,
     buffer_size: usize,
-    inner: Option<ReadaheadInner<I, TP::JoinHandle>>,
+    inner: Option<ReadaheadInner<I>>,
     worker_panicked: Arc<AtomicBool>,
 }
 
-impl<I, TP> Readahead<I, TP>
+impl<I> Readahead<I>
 where
     I: Iterator,
     I: Send + 'static,
-    TP: ThreadPool,
     I::Item: Send + 'static,
 {
-    pub fn new(iter: I, buffer_size: usize, thread_pool: TP) -> Self {
+    pub fn new(iter: I, buffer_size: usize) -> Self {
         Self {
             iter_size_hint: iter.size_hint(),
             iter: Some(iter),
             buffer_size,
-            thread_pool,
             inner: None,
             worker_panicked: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Use a custom thread pool
-    ///
-    /// # Panics
-    ///
-    /// Changing thread-pool, after `started` was already called
-    /// is not supported and will panic.
-    pub fn within<TP2>(self, thread_pool: TP2) -> Readahead<I, TP2>
-    where
-        TP2: ThreadPool,
-    {
-        if self.inner.is_some() {
-            panic!("Already started. Must call `within` before `started`.");
-        }
-
-        Readahead {
-            iter: self.iter,
-            iter_size_hint: self.iter_size_hint,
-            thread_pool,
-            inner: None,
-            buffer_size: self.buffer_size,
-            worker_panicked: self.worker_panicked,
         }
     }
 
@@ -73,7 +43,7 @@ where
 
             let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
             let mut iter = self.iter.take().expect("iter empty?!");
-            let _join = self.thread_pool.submit(move || {
+            let _join = std::thread::spawn(move || {
                 while let Some(i) = iter.next() {
                     // don't panic if the receiver disconnects
                     let _ = tx.send(i);
@@ -85,18 +55,17 @@ where
     }
 }
 
-struct ReadaheadInner<I, JH>
+struct ReadaheadInner<I>
 where
     I: Iterator,
 {
     rx: crossbeam_channel::Receiver<I::Item>,
-    _join: JH,
+    _join: std::thread::JoinHandle<()>,
 }
 
-impl<I, TP> Iterator for Readahead<I, TP>
+impl<I> Iterator for Readahead<I>
 where
     I: Iterator,
-    TP: ThreadPool,
     I: Send + 'static,
 
     I::Item: Send + 'static,
