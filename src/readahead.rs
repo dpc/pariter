@@ -1,13 +1,16 @@
+use crate::Scope;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::DropIndicator;
 
 /// And iterator that provides parallelism
 /// by running the inner iterator in another thread.
-pub struct Readahead<I>
+pub struct Readahead<'env, 'scope, I>
 where
     I: Iterator,
 {
+    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + 'scope>,
+
     iter: Option<I>,
     iter_size_hint: (usize, Option<usize>),
     buffer_size: usize,
@@ -15,7 +18,7 @@ where
     worker_panicked: Arc<AtomicBool>,
 }
 
-impl<I> Readahead<I>
+impl<I> Readahead<'static, 'static, I>
 where
     I: Iterator,
     I: Send + 'static,
@@ -23,6 +26,30 @@ where
 {
     pub fn new(iter: I, buffer_size: usize) -> Self {
         Self {
+            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'static>| {
+                std::thread::spawn(move || f());
+            }) as Box<dyn Fn(_) + 'static>,
+
+            iter_size_hint: iter.size_hint(),
+            iter: Some(iter),
+            buffer_size,
+            inner: None,
+            worker_panicked: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+impl<'env, 'scope, I> Readahead<'env, 'scope, I>
+where
+    I: Iterator,
+    I: Send + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
+{
+    pub fn new_scoped(scope: &'scope Scope<'env>, iter: I, buffer_size: usize) -> Self {
+        Self {
+            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'env>| {
+                scope.spawn(move |_| f());
+            }) as Box<(dyn Fn(_) + 'scope)>,
+
             iter_size_hint: iter.size_hint(),
             iter: Some(iter),
             buffer_size,
@@ -43,14 +70,14 @@ where
 
             let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
             let mut iter = self.iter.take().expect("iter empty?!");
-            let _join = std::thread::spawn(move || {
+            (self.spawn_fn)(Box::new(move || {
                 while let Some(i) = iter.next() {
                     // don't panic if the receiver disconnects
                     let _ = tx.send(i);
                 }
                 drop_indicator.cancel();
-            });
-            self.inner = Some(ReadaheadInner { rx, _join });
+            }));
+            self.inner = Some(ReadaheadInner { rx });
         }
     }
 }
@@ -60,15 +87,13 @@ where
     I: Iterator,
 {
     rx: crossbeam_channel::Receiver<I::Item>,
-    _join: std::thread::JoinHandle<()>,
 }
 
-impl<I> Iterator for Readahead<I>
+impl<'env, 'scope, I> Iterator for Readahead<'env, 'scope, I>
 where
-    I: Iterator,
-    I: Send + 'static,
-
-    I::Item: Send + 'static,
+    I: Iterator + 'env + 'scope,
+    I: Send + 'env + 'scope,
+    I::Item: Send + 'env + 'scope,
 {
     type Item = I::Item;
 

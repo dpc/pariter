@@ -42,6 +42,20 @@ fn iter_vs_readhead(v: Vec<usize>, out: usize) -> bool {
 }
 
 #[quickcheck]
+fn iter_vs_readhead_scoped(v: Vec<usize>, out: usize) -> bool {
+    let m: Vec<_> = v.iter().map(|x| x / 2).collect();
+    let mp: Vec<_> = super::scope(|s| {
+        v.iter()
+            .readahead_scoped(s, out % 32)
+            .map(|x| x / 2)
+            .collect()
+    })
+    .expect("failed");
+
+    m == mp
+}
+
+#[quickcheck]
 fn filter_vs_parallel_filter(v: Vec<usize>) -> bool {
     let m: Vec<_> = v.clone().into_iter().filter(|x| x % 2 == 0).collect();
     let mp: Vec<_> = v
@@ -56,7 +70,12 @@ fn filter_vs_parallel_filter(v: Vec<usize>) -> bool {
 #[quickcheck]
 fn filter_vs_parallel_filter_scoped(v: Vec<usize>) -> bool {
     let m: Vec<_> = v.iter().filter(|x| *x % 2 == 0).collect();
-    let mp: Vec<_> = super::scope(|s| v.iter().parallel_filter_scoped(s, |x| *x % 2 == 0).collect()).expect("failed");
+    let mp: Vec<_> = super::scope(|s| {
+        v.iter()
+            .parallel_filter_scoped(s, |x| *x % 2 == 0)
+            .collect()
+    })
+    .expect("failed");
 
     m == mp
 }

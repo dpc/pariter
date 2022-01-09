@@ -1,5 +1,4 @@
 #![doc = include_str!("../README.md")]
-
 use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc,
@@ -14,8 +13,7 @@ pub use self::readahead::Readahead;
 mod parallel_filter;
 pub use self::parallel_filter::ParallelFilter;
 
-pub use crossbeam::scope;
-pub use crossbeam::thread::Scope;
+pub use crossbeam::{scope, thread::Scope};
 
 /// Extension trait for [`std::iter::Iterator`] bringing parallel operations
 ///
@@ -43,17 +41,7 @@ pub trait IteratorExt {
         O: 'static,
         F: FnMut(Self::Item) -> O + Send + 'static;
 
-    /// Run `filter` function in parallel on multiple threads
-    ///
-    /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
-    where
-        Self: Sized,
-        Self: Iterator + Send,
-        F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
-        Self::Item: Send + 'static;
-
-    /// Scoped version of `parallel_map`
+    /// Scoped version of [`IteratorExt::parallel_map`]
     ///
     /// Use when you want to process in parallel items that contain
     /// borrowed references.
@@ -69,7 +57,17 @@ pub trait IteratorExt {
         Self: Iterator + 'scope + 'env,
         F: FnMut(Self::Item) -> O + 'scope + 'env + Send;
 
-    /// Scoped version of `parallel_filter`
+    /// Run `filter` function in parallel on multiple threads
+    ///
+    /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
+    where
+        Self: Sized,
+        Self: Iterator + Send,
+        F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
+        Self::Item: Send + 'static;
+
+    /// Scoped version of [`IteratorExt::parallel_filter`]
     ///
     /// Use when you want to process in parallel items that contain
     /// borrowed references.
@@ -95,14 +93,30 @@ pub trait IteratorExt {
     /// It's a common mistake to use large channel sizes needlessly
     /// in hopes of achieving higher performance. The only benefit
     /// large buffer size value provides is smooting out the variance
-    /// of the inner iterator. The cost - wasting memory. In normal
+    /// of the inner iterator returning items. The cost - wasting memory. In normal
     /// circumstances `0` is recommended.
-    fn readahead(self, buffer_size: usize) -> Readahead<Self>
+    fn readahead(self, buffer_size: usize) -> Readahead<'static, 'static, Self>
     where
         Self: Iterator,
         Self: Sized,
         Self: Send + 'static,
         Self::Item: Send + 'static;
+
+    /// Scoped version of [`IteratorExt::readahead`]
+    ///
+    /// Use when you want to process in parallel items that contain
+    /// borrowed references.
+    ///
+    /// See [`scope`].
+    fn readahead_scoped<'env, 'scope>(
+        self,
+        scope: &'scope Scope<'env>,
+        buffer_size: usize,
+    ) -> Readahead<'env, 'scope, Self>
+    where
+        Self: Sized + Send,
+        Self: Iterator + 'scope + 'env,
+        Self::Item: Send + 'env + 'scope + Send;
 }
 
 impl<I> IteratorExt for I
@@ -119,16 +133,6 @@ where
         ParallelMap::new(self, f)
     }
 
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
-    where
-        Self: Sized,
-        Self: Iterator + Send,
-        F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
-        <Self as Iterator>::Item: Send + 'static,
-    {
-        ParallelFilter::new(self, f)
-    }
-
     fn parallel_map_scoped<'env, 'scope, F, O>(
         self,
         scope: &'scope Scope<'env>,
@@ -140,6 +144,16 @@ where
         F: FnMut(I::Item) -> O + 'env + 'scope + Send,
     {
         ParallelMap::new_scoped(self, scope, f)
+    }
+
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
+    where
+        Self: Sized,
+        Self: Iterator + Send,
+        F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
+        <Self as Iterator>::Item: Send + 'static,
+    {
+        ParallelFilter::new(self, f)
     }
 
     fn parallel_filter_scoped<'env, 'scope, F>(
@@ -156,7 +170,7 @@ where
         ParallelFilter::new_scoped(self, scope, f)
     }
 
-    fn readahead(self, buffer_size: usize) -> Readahead<Self>
+    fn readahead(self, buffer_size: usize) -> Readahead<'static, 'static, Self>
     where
         Self: Iterator,
         Self: Sized,
@@ -164,6 +178,19 @@ where
         <Self as Iterator>::Item: Send + 'static,
     {
         Readahead::new(self, buffer_size)
+    }
+
+    fn readahead_scoped<'env, 'scope>(
+        self,
+        scope: &'scope Scope<'env>,
+        buffer_size: usize,
+    ) -> Readahead<'env, 'scope, Self>
+    where
+        Self: Sized + Send,
+        Self: Iterator + 'env + 'scope,
+        <Self as Iterator>::Item: Send + 'env + 'scope,
+    {
+        Readahead::new_scoped(scope, self, buffer_size)
     }
 }
 
