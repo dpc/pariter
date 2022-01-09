@@ -1,6 +1,6 @@
 # Parallel iterator processing library for Rust
 
-See [`IteratorExt`](https://docs.rs/dpc-pariter/latest/dpc_pariter/trait.IteratorExt.html)
+See [`IteratorExt`] ([latest `IteratorExt` on docs.rs](https://docs.rs/dpc-pariter/latest/dpc_pariter/trait.IteratorExt.html))
 for supported operations.
 
 ## Notable features
