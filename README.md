@@ -1,5 +1,8 @@
 # Parallel iterator processing library for Rust
 
+See [`IteratorExt`](https://docs.rs/dpc-pariter/latest/dpc_pariter/trait.IteratorExt.html)
+for supported operations.
+
 ## Notable features
 
 * drop-in replacement for standard iterators(*)
@@ -39,7 +42,7 @@ my own.
 
 ## Usage
 
-See [`IteratorExt`] for supported operations. Adding new ones based
+ Adding new ones based
 on the existing code should be relatively easy, so PRs are welcome.
 
 In short, if you have:
