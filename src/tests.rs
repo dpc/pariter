@@ -16,17 +16,16 @@ fn map_vs_map_parallel(v: Vec<usize>, threads: usize) -> bool {
 
 #[quickcheck]
 fn map_vs_map_parallel_scoped(v: Vec<usize>, threads: usize) -> bool {
-    let m: Vec<_> = v.iter().map(|x| x / 2).collect();
-    super::scope(|s| {
-        let mp: Vec<_> = v
-            .iter()
+    let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
+    let mp: Vec<usize> = super::scope(|s| {
+        v.iter()
             .parallel_map_scoped(s, |x| x / 2)
             .threads(threads % 32)
-            .collect();
-
-        m == mp
+            .collect()
     })
-    .expect("failed")
+    .expect("failed");
+
+    m == mp
 }
 
 #[quickcheck]
@@ -53,6 +52,15 @@ fn filter_vs_parallel_filter(v: Vec<usize>) -> bool {
 
     m == mp
 }
+
+#[quickcheck]
+fn filter_vs_parallel_filter_scoped(v: Vec<usize>) -> bool {
+    let m: Vec<_> = v.iter().filter(|x| *x % 2 == 0).collect();
+    let mp: Vec<_> = super::scope(|s| v.iter().parallel_filter_scoped(s, |x| *x % 2 == 0).collect()).expect("failed");
+
+    m == mp
+}
+
 #[test]
 #[should_panic]
 fn panic_always_1() {
