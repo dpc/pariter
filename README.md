@@ -32,8 +32,9 @@ operations involving IO or some CPU-heavy computation.
 When you have a lot items **already stored in a collection**,
 that you want to "roll over and perform some mass computation"
 you probably want to use `rayon` instead. It's a library optimized
-for parallelizing processing of whole chunks of larger set of data.
-Because of that [converting `rayon`'s iterators back to ordered
+for parallelizing processing of whole chunks of larger set of data,
+which minimizes any per-item overheads.
+A downside of that is that [converting `rayon`'s iterators back to ordered
 sequencial iterator is non-trivial](https://github.com/rayon-rs/rayon/issues/210).
 
 There are alternative libraries somewhat like this, but I did not
