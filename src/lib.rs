@@ -13,6 +13,9 @@ pub use self::readahead::Readahead;
 mod parallel_filter;
 pub use self::parallel_filter::ParallelFilter;
 
+mod profile;
+pub use self::profile::{ProfileEgress, ProfileIngress, Profiler};
+
 pub use crossbeam::{scope, thread::Scope};
 
 /// Extension trait for [`std::iter::Iterator`] bringing parallel operations
@@ -117,6 +120,58 @@ pub trait IteratorExt {
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
         Self::Item: Send + 'env + 'scope + Send;
+
+    /// Profiled version of [`IteratorExt::readahead`]
+    ///
+    /// Literally `.profile_egress(tx_profiler).readahead(n).profile_ingress(rx_profiler)`
+    ///
+    /// See [`dpc_pariter::Profiler`] for more info.
+    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        buffer_size: usize,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<'static, 'static, ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Iterator,
+        Self: Sized,
+        Self: Send + 'static,
+        Self::Item: Send + 'static,
+        TxP: Send + 'static;
+
+    /// Profiled version of [`IteratorExt::readahead_scoped`]
+    ///
+    /// Literally `.profile_egress(tx_profiler).readahead_scoped(scope, n).profile_ingress(rx_profiler)`
+    ///
+    /// See [`dpc_pariter::Profiler`] for more info.
+    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        scope: &'scope Scope<'env>,
+        buffer_size: usize,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<'env, 'scope, ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Sized + Send,
+        Self: Iterator + 'scope + 'env,
+        Self::Item: Send + 'env + 'scope + Send,
+        TxP: Send + 'static;
+
+    /// Profile the time it takes downstream iterator step to consume the returned items.
+    ///
+    /// See [`ProfileEgress`] and [`profile::Profiler`].
+    fn profile_egress<P: profile::Profiler>(self, profiler: P) -> ProfileEgress<Self, P>
+    where
+        Self: Iterator,
+        Self: Sized;
+
+    /// Profile the time it takes upstream iterator step to produce the returned items.
+    ///
+    /// See [`ProfileIngress`] and [`profile::Profiler`].
+    fn profile_ingress<P: profile::Profiler>(self, profiler: P) -> ProfileIngress<Self, P>
+    where
+        Self: Iterator,
+        Self: Sized;
 }
 
 impl<I> IteratorExt for I
@@ -191,6 +246,60 @@ where
         <Self as Iterator>::Item: Send + 'env + 'scope,
     {
         Readahead::new_scoped(scope, self, buffer_size)
+    }
+
+    fn profile_egress<P: profile::Profiler>(self, profiler: P) -> ProfileEgress<Self, P>
+    where
+        Self: Iterator,
+        Self: Sized,
+    {
+        ProfileEgress::new(self, profiler)
+    }
+
+    fn profile_ingress<P: profile::Profiler>(self, profiler: P) -> ProfileIngress<Self, P>
+    where
+        Self: Iterator,
+        Self: Sized,
+    {
+        ProfileIngress::new(self, profiler)
+    }
+
+    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        buffer_size: usize,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<'static, 'static, ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Iterator,
+        Self: Sized,
+        Self: Send + 'static,
+        <Self as Iterator>::Item: Send + 'static,
+        TxP: Send + 'static,
+    {
+        self.profile_egress(tx_profiler)
+            .readahead(buffer_size)
+            .profile_ingress(rx_profiler)
+    }
+
+    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        scope: &'scope Scope<'env>,
+        buffer_size: usize,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<'env, 'scope, ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Iterator,
+        Self: Sized + Send,
+        Self: Iterator + 'scope + 'env,
+        <Self as Iterator>::Item: Send + 'env + 'scope + Send,
+
+        TxP: Send + 'static,
+    {
+        self.profile_egress(tx_profiler)
+            .readahead_scoped(scope, buffer_size)
+            .profile_ingress(rx_profiler)
     }
 }
 
