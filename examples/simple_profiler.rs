@@ -2,7 +2,7 @@ use dpc_pariter::IteratorExt;
 
 use std::time;
 
-/// A simple [`readahead::Profiler`] implementation
+/// Custom [`readahead::Profiler`] implementation
 ///
 /// This implementation will reports on `stderr` that
 /// a given side of a pipeline is blocked, waiting for
@@ -10,13 +10,13 @@ use std::time;
 ///
 /// In a real code this might be logging using `log`,
 /// capturing metrics, etc.
-struct SimpleProfiler {
+struct StderrMsgProfiler {
     name: String,
     start: time::Instant,
     duration: time::Duration,
 }
 
-impl SimpleProfiler {
+impl StderrMsgProfiler {
     fn new(name: &str) -> Self {
         Self {
             start: time::Instant::now(),
@@ -26,7 +26,7 @@ impl SimpleProfiler {
     }
 }
 
-impl dpc_pariter::Profiler for SimpleProfiler {
+impl dpc_pariter::Profiler for StderrMsgProfiler {
     fn start(&mut self) {
         self.start = time::Instant::now();
     }
@@ -40,41 +40,71 @@ impl dpc_pariter::Profiler for SimpleProfiler {
             // rare but spurious and confusing messages.
             .saturating_sub(time::Duration::from_millis(1));
 
-        let min_duration_to_report = time::Duration::from_secs(10);
+        let min_duration_to_report = time::Duration::from_millis(100);
         if min_duration_to_report <= self.duration {
+            eprintln!(
+                "{} was blocked waiting for {}ms",
+                self.name,
+                self.duration.as_millis()
+            );
             self.duration -= min_duration_to_report;
-            eprintln!("{} is blocked waiting", self.name);
         }
     }
 }
 
 fn main() {
+    dpc_pariter::scope(|scope| {
+        (0..22)
+            .map(|i| {
+                // make producting values slow
+                std::thread::sleep(time::Duration::from_millis(10));
+                i
+            })
+            .readahead_scoped_profiled(
+                scope,
+                0,
+                dpc_pariter::TotalTimeProfiler::periodically_millis(2_000, || {
+                    eprintln!("Blocked on sending")
+                }),
+                dpc_pariter::TotalTimeProfiler::new(|stat| {
+                    eprintln!(
+                        "Sending receiving wait time: {}ms",
+                        stat.total().as_millis()
+                    )
+                }),
+            )
+            .for_each(|i| {
+                println!("{i}");
+            })
+    })
+    .expect("thread panicked");
+
     (0..22)
-        .profile_egress(SimpleProfiler::new("sending"))
+        .profile_egress(StderrMsgProfiler::new("sending"))
         .readahead(0)
-        .profile_ingress(SimpleProfiler::new("receiving"))
+        .profile_ingress(StderrMsgProfiler::new("receiving"))
         .for_each(|i| {
             println!("{i}");
             // make consuming values slow
-            std::thread::sleep(time::Duration::from_secs(1));
+            std::thread::sleep(time::Duration::from_millis(10));
         });
 
     dpc_pariter::scope(|scope| {
         (0..22)
             .map(|i| {
                 // make producting values slow
-                std::thread::sleep(time::Duration::from_secs(1));
+                std::thread::sleep(time::Duration::from_millis(10));
                 i
             })
             .readahead_scoped_profiled(
                 scope,
                 0,
-                SimpleProfiler::new("sending2"),
-                SimpleProfiler::new("receiving2"),
+                StderrMsgProfiler::new("sending2"),
+                StderrMsgProfiler::new("receiving2"),
             )
             .for_each(|i| {
                 println!("{i}");
             })
     })
-    .expect("thread paniced");
+    .expect("thread panicked");
 }

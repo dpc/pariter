@@ -1,3 +1,7 @@
+mod simple;
+
+pub use simple::{TotalTimeProfiler, TotalTimeStats};
+
 /// An interface to profile iterator consumption/prodution performance
 ///
 /// In real applications utilizing pipelining it's important
@@ -12,6 +16,8 @@
 ///  `start` with no-corresponding `end`, since it's impossible to
 ///  predict if the next iterator chain step will call `next()`
 ///  again to pull for the next item.
+///
+///  See [`TotalTimeProfiler`] for simple starting built-in implementation.
 pub trait Profiler {
     fn start(&mut self);
     fn end(&mut self);

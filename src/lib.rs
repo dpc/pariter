@@ -13,8 +13,10 @@ pub use self::readahead::Readahead;
 mod parallel_filter;
 pub use self::parallel_filter::ParallelFilter;
 
-mod profile;
-pub use self::profile::{ProfileEgress, ProfileIngress, Profiler};
+pub mod profile;
+pub use self::profile::{
+    ProfileEgress, ProfileIngress, Profiler, TotalTimeProfiler, TotalTimeStats,
+};
 
 pub use crossbeam::{scope, thread::Scope};
 
@@ -125,7 +127,7 @@ pub trait IteratorExt {
     ///
     /// Literally `.profile_egress(tx_profiler).readahead(n).profile_ingress(rx_profiler)`
     ///
-    /// See [`dpc_pariter::Profiler`] for more info.
+    /// See [`Profiler`] for more info.
     fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
         self,
         buffer_size: usize,
@@ -143,7 +145,7 @@ pub trait IteratorExt {
     ///
     /// Literally `.profile_egress(tx_profiler).readahead_scoped(scope, n).profile_ingress(rx_profiler)`
     ///
-    /// See [`dpc_pariter::Profiler`] for more info.
+    /// See [`Profiler`] for more info.
     fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
         self,
         scope: &'scope Scope<'env>,
