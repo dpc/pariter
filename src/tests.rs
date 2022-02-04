@@ -15,12 +15,40 @@ fn map_vs_map_parallel(v: Vec<usize>, threads: usize) -> bool {
 }
 
 #[quickcheck]
+fn map_vs_map_parallel_with_readahead(v: Vec<usize>, threads: usize) -> bool {
+    let m: Vec<_> = v.clone().into_iter().map(|x| x / 2).collect();
+    let mp: Vec<_> = v
+        .clone()
+        .into_iter()
+        .parallel_map(|x| x / 2)
+        .threads(threads % 32)
+        .readahead(0)
+        .collect();
+
+    m == mp
+}
+#[quickcheck]
 fn map_vs_map_parallel_scoped(v: Vec<usize>, threads: usize) -> bool {
     let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
     let mp: Vec<usize> = super::scope(|s| {
         v.iter()
             .parallel_map_scoped(s, |x| x / 2)
             .threads(threads % 32)
+            .collect()
+    })
+    .expect("failed");
+
+    m == mp
+}
+
+#[quickcheck]
+fn map_vs_map_parallel_scoped_with_readahead(v: Vec<usize>, threads: usize) -> bool {
+    let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
+    let mp: Vec<usize> = super::scope(|s| {
+        v.iter()
+            .parallel_map_scoped(s, |x| x / 2)
+            .threads(threads % 32)
+            .readahead_scoped(s, 0)
             .collect()
     })
     .expect("failed");
