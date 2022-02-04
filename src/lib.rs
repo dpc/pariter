@@ -5,13 +5,13 @@ use std::sync::{
 };
 
 mod parallel_map;
-pub use self::parallel_map::ParallelMap;
+pub use self::parallel_map::{ParallelMap, ParallelMapBuilder};
 
 mod readahead;
-pub use self::readahead::Readahead;
+pub use self::readahead::{Readahead, ReadaheadBuilder};
 
 mod parallel_filter;
-pub use self::parallel_filter::ParallelFilter;
+pub use self::parallel_filter::{ParallelFilter, ParallelFilterBuilder};
 
 pub mod profile;
 pub use self::profile::{
@@ -34,60 +34,78 @@ pub trait IteratorExt {
     ///
     /// Results will be returned in order.
     ///
-    /// No worker threads will be started and no items will be pulled unless [`ParallelMap::started`]
-    /// was called, or until first time [`ParallelMap`] is pulled for elements with [`ParallelMap::next`].
+    /// No items will be pulled until first time [`ParallelMap`] is pulled for elements with [`ParallelMap::next`].
     /// In that respect, `ParallelMap` behaves like every other iterator and is lazy.
-    ///
-    /// Default built-in thread pool will be used unless [`ParallelMap::threads`] is used.
-    fn parallel_map<F, O>(self, f: F) -> ParallelMap<'static, 'static, Self, O, F>
+    fn parallel_map_custom(self) -> ParallelMapBuilder<Self>
     where
         Self: Sized,
-        Self: Iterator,
-        O: 'static,
-        F: FnMut(Self::Item) -> O + Send + 'static;
+        Self: Iterator;
 
-    /// Scoped version of [`IteratorExt::parallel_map`]
-    ///
-    /// Use when you want to process in parallel items that contain
-    /// borrowed references.
-    ///
-    /// See [`scope`].
+    /// See [`IteratorExt::parallel_map_custom`]
+    fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O>
+    where
+        Self: Sized,
+        Self: Iterator + 'static,
+        F: 'static + Send + Clone,
+        Self::Item: Send + 'static,
+        F: FnMut(Self::Item) -> O,
+        O: Send + 'static,
+    {
+        self.parallel_map_custom().with(f)
+    }
+
+    /// See [`IteratorExt::parallel_map_custom`]
     fn parallel_map_scoped<'env, 'scope, F, O>(
         self,
         scope: &'scope Scope<'env>,
         f: F,
-    ) -> ParallelMap<'env, 'scope, Self, O, F>
+    ) -> ParallelMap<Self, O>
     where
         Self: Sized,
-        Self: Iterator + 'scope + 'env,
-        F: FnMut(Self::Item) -> O + 'scope + 'env + Send;
+        Self: Iterator + 'env,
+        F: 'env + Send + Clone,
+        Self::Item: Send + 'env,
+        F: FnMut(Self::Item) -> O,
+        O: Send + 'env,
+    {
+        self.parallel_map_custom().with_scoped(scope, f)
+    }
 
     /// Run `filter` function in parallel on multiple threads
     ///
     /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
+    fn parallel_filter_custom(self) -> ParallelFilterBuilder<Self>
     where
         Self: Sized,
-        Self: Iterator + Send,
-        F: FnMut(&Self::Item) -> bool + Send + 'static + Clone,
-        Self::Item: Send + 'static;
+        Self: Iterator;
 
-    /// Scoped version of [`IteratorExt::parallel_filter`]
-    ///
-    /// Use when you want to process in parallel items that contain
-    /// borrowed references.
-    ///
-    /// See [`scope`].
+    /// See [`IteratorExt::parallel_filter_custom`]
+    fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self>
+    where
+        Self: Sized,
+        Self: Iterator + 'static,
+        F: 'static + Send + Clone,
+        Self::Item: Send + 'static,
+        F: FnMut(&Self::Item) -> bool,
+    {
+        self.parallel_filter_custom().with(f)
+    }
+
+    /// See [`IteratorExt::parallel_filter_custom`]
     fn parallel_filter_scoped<'env, 'scope, F>(
         self,
         scope: &'scope Scope<'env>,
         f: F,
-    ) -> ParallelFilter<'env, 'scope, Self>
+    ) -> ParallelFilter<Self>
     where
         Self: Sized,
-        Self: Iterator + Send + 'scope + 'env,
-        F: FnMut(&Self::Item) -> bool + Send + 'env + 'scope + Clone,
-        Self::Item: Send + 'env + 'scope;
+        Self: Iterator + 'env,
+        F: 'env + Send + Clone,
+        Self::Item: Send + 'env,
+        F: FnMut(&Self::Item) -> bool,
+    {
+        self.parallel_filter_custom().with_scoped(scope, f)
+    }
 
     /// Run the current iterator in another thread and return elements
     /// through a buffered channel.
@@ -98,13 +116,12 @@ pub trait IteratorExt {
     /// It's a common mistake to use large channel sizes needlessly
     /// in hopes of achieving higher performance. The only benefit
     /// large buffer size value provides is smooting out the variance
-    /// of the inner iterator returning items. The cost - wasting memory. In normal
-    /// circumstances `0` is recommended.
-    fn readahead(self, buffer_size: usize) -> Readahead<'static, 'static, Self>
+    /// of the inner iterator returning items. The cost - wasting memory.
+    /// In normal circumstances `0` is recommended (the default).
+    fn readahead(self) -> Readahead<Self>
     where
-        Self: Iterator,
+        Self: Iterator + Send + 'static,
         Self: Sized,
-        Self: Send + 'static,
         Self::Item: Send + 'static;
 
     /// Scoped version of [`IteratorExt::readahead`]
@@ -113,51 +130,17 @@ pub trait IteratorExt {
     /// borrowed references.
     ///
     /// See [`scope`].
-    fn readahead_scoped<'env, 'scope>(
-        self,
-        scope: &'scope Scope<'env>,
-        buffer_size: usize,
-    ) -> Readahead<'env, 'scope, Self>
+    fn readahead_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<Self>
     where
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
         Self::Item: Send + 'env + 'scope + Send;
 
-    /// Profiled version of [`IteratorExt::readahead`]
-    ///
-    /// Literally `.profile_egress(tx_profiler).readahead(n).profile_ingress(rx_profiler)`
-    ///
-    /// See [`Profiler`] for more info.
-    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
-        self,
-        buffer_size: usize,
-        tx_profiler: TxP,
-        rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<'static, 'static, ProfileEgress<Self, TxP>>, RxP>
+    fn readahead_custom(self) -> ReadaheadBuilder<Self>
     where
         Self: Iterator,
-        Self: Sized,
-        Self: Send + 'static,
-        Self::Item: Send + 'static,
-        TxP: Send + 'static;
-
-    /// Profiled version of [`IteratorExt::readahead_scoped`]
-    ///
-    /// Literally `.profile_egress(tx_profiler).readahead_scoped(scope, n).profile_ingress(rx_profiler)`
-    ///
-    /// See [`Profiler`] for more info.
-    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
-        self,
-        scope: &'scope Scope<'env>,
-        buffer_size: usize,
-        tx_profiler: TxP,
-        rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<'env, 'scope, ProfileEgress<Self, TxP>>, RxP>
-    where
         Self: Sized + Send,
-        Self: Iterator + 'scope + 'env,
-        Self::Item: Send + 'env + 'scope + Send,
-        TxP: Send + 'static;
+        Self::Item: Send;
 
     /// Profile the time it takes downstream iterator step to consume the returned items.
     ///
@@ -174,80 +157,87 @@ pub trait IteratorExt {
     where
         Self: Iterator,
         Self: Sized;
+
+    /// Profiled version of [`IteratorExt::readahead`]
+    ///
+    /// Literally `.profile_egress(tx_profiler).readahead(n).profile_ingress(rx_profiler)`
+    ///
+    /// See [`Profiler`] for more info.
+    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Iterator,
+        Self: Sized,
+        Self: Send + 'static,
+        Self::Item: Send + 'static,
+        TxP: Send + 'static;
+
+    /// Profiled version of [`IteratorExt::readahead_scoped`]
+    ///
+    /// Literally `.profile_egress(tx_profiler).readahead_scoped(scope, n).profile_ingress(rx_profiler)`
+    ///
+    /// See [`Profiler`] for more info.
+    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
+        self,
+        scope: &'scope Scope<'env>,
+        tx_profiler: TxP,
+        rx_profiler: RxP,
+    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
+    where
+        Self: Sized + Send,
+        Self: Iterator + 'scope + 'env,
+        Self::Item: Send + 'env + 'scope + Send,
+        TxP: Send + 'static;
 }
 
 impl<I> IteratorExt for I
 where
     I: Iterator,
 {
-    fn parallel_map<F, O>(self, f: F) -> ParallelMap<'static, 'static, Self, O, F>
+    fn parallel_map_custom(self) -> ParallelMapBuilder<Self>
     where
         Self: Sized,
         Self: Iterator,
-        O: 'static,
-        F: FnMut(I::Item) -> O + Send + 'static,
     {
-        ParallelMap::new(self, f)
+        ParallelMapBuilder::new(self)
     }
 
-    fn parallel_map_scoped<'env, 'scope, F, O>(
-        self,
-        scope: &'scope Scope<'env>,
-        f: F,
-    ) -> ParallelMap<'env, 'scope, Self, O, F>
+    fn parallel_filter_custom(self) -> ParallelFilterBuilder<Self>
     where
         Self: Sized,
-        Self: Iterator + 'env + 'scope,
-        F: FnMut(I::Item) -> O + 'env + 'scope + Send,
-    {
-        ParallelMap::new_scoped(self, scope, f)
-    }
-
-    fn parallel_filter<F>(self, f: F) -> ParallelFilter<'static, 'static, Self>
-    where
-        Self: Sized,
-        Self: Iterator + Send,
-        F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
-        <Self as Iterator>::Item: Send + 'static,
-    {
-        ParallelFilter::new(self, f)
-    }
-
-    fn parallel_filter_scoped<'env, 'scope, F>(
-        self,
-        scope: &'scope Scope<'env>,
-        f: F,
-    ) -> ParallelFilter<'env, 'scope, Self>
-    where
-        Self: Sized,
-        Self: Iterator + Send + 'env + 'scope,
-        F: FnMut(&I::Item) -> bool + Send + 'env + 'scope + Clone,
-        <Self as Iterator>::Item: Send + 'env + 'scope,
-    {
-        ParallelFilter::new_scoped(self, scope, f)
-    }
-
-    fn readahead(self, buffer_size: usize) -> Readahead<'static, 'static, Self>
-    where
         Self: Iterator,
-        Self: Sized,
-        Self: Send + 'static,
-        <Self as Iterator>::Item: Send + 'static,
     {
-        Readahead::new(self, buffer_size)
+        ParallelFilterBuilder::new(self)
     }
 
-    fn readahead_scoped<'env, 'scope>(
-        self,
-        scope: &'scope Scope<'env>,
-        buffer_size: usize,
-    ) -> Readahead<'env, 'scope, Self>
+    fn readahead(self) -> Readahead<Self>
+    where
+        Self: Iterator + Send + 'static,
+        Self: Sized,
+        <Self as Iterator>::Item: Send + 'static,
+    {
+        ReadaheadBuilder::new(self).with()
+    }
+
+    fn readahead_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<Self>
     where
         Self: Sized + Send,
         Self: Iterator + 'env + 'scope,
         <Self as Iterator>::Item: Send + 'env + 'scope,
     {
-        Readahead::new_scoped(scope, self, buffer_size)
+        ReadaheadBuilder::new(self).with_scoped(scope)
+    }
+
+    fn readahead_custom(self) -> ReadaheadBuilder<Self>
+    where
+        Self: Iterator + Send,
+        Self: Sized,
+        <Self as Iterator>::Item: Send,
+    {
+        ReadaheadBuilder::new(self)
     }
 
     fn profile_egress<P: profile::Profiler>(self, profiler: P) -> ProfileEgress<Self, P>
@@ -268,10 +258,9 @@ where
 
     fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
         self,
-        buffer_size: usize,
         tx_profiler: TxP,
         rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<'static, 'static, ProfileEgress<Self, TxP>>, RxP>
+    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
     where
         Self: Iterator,
         Self: Sized,
@@ -280,17 +269,16 @@ where
         TxP: Send + 'static,
     {
         self.profile_egress(tx_profiler)
-            .readahead(buffer_size)
+            .readahead()
             .profile_ingress(rx_profiler)
     }
 
     fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
         self,
         scope: &'scope Scope<'env>,
-        buffer_size: usize,
         tx_profiler: TxP,
         rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<'env, 'scope, ProfileEgress<Self, TxP>>, RxP>
+    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
     where
         Self: Iterator,
         Self: Sized + Send,
@@ -300,7 +288,7 @@ where
         TxP: Send + 'static,
     {
         self.profile_egress(tx_profiler)
-            .readahead_scoped(scope, buffer_size)
+            .readahead_scoped(scope)
             .profile_ingress(rx_profiler)
     }
 }

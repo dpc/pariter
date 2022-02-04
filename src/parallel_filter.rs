@@ -1,114 +1,68 @@
-use crate::{ParallelMap, Scope};
+use crate::{ParallelMap, ParallelMapBuilder, Scope};
 
-trait FilterMapFn<Item>: FnMut(Item) -> Option<Item> + Send {
-    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item> + Send>
-    where
-        Self: 'a;
-}
-
-impl<F, Item> FilterMapFn<Item> for F
+pub struct ParallelFilterBuilder<I>(ParallelMapBuilder<I>)
 where
-    F: FnMut(Item) -> Option<Item> + Clone + Send,
-{
-    fn clone_box<'a>(&self) -> Box<dyn 'a + FilterMapFn<Item> + Send>
-    where
-        Self: 'a,
-    {
-        Box::new(self.clone())
-    }
-}
+    I: Iterator;
 
-impl<'a, Item: 'a> Clone for Box<dyn 'a + FilterMapFn<Item> + Send> {
-    fn clone(&self) -> Self {
-        (**self).clone_box()
+impl<I> ParallelFilterBuilder<I>
+where
+    I: Iterator,
+{
+    pub fn new(iter: I) -> Self {
+        Self(ParallelMapBuilder::new(iter))
+    }
+
+    pub fn threads(self, num: usize) -> Self {
+        Self(self.0.threads(num))
+    }
+    pub fn buffer_size(self, num: usize) -> Self {
+        Self(self.0.buffer_size(num))
+    }
+
+    pub fn with<F>(self, mut f: F) -> ParallelFilter<I>
+    where
+        I: Iterator + 'static,
+        F: 'static + Send + Clone,
+        I::Item: Send + 'static,
+        F: FnMut(&I::Item) -> bool,
+    {
+        ParallelFilter {
+            iter: self.0.with(move |v| if f(&v) { Some(v) } else { None }),
+        }
+    }
+
+    pub fn with_scoped<'env, 'scope, F>(
+        self,
+        scope: &'scope Scope<'env>,
+        mut f: F,
+    ) -> ParallelFilter<I>
+    where
+        I: Iterator + 'env,
+        F: 'env + Send + Clone,
+        I::Item: Send + 'env,
+        F: FnMut(&I::Item) -> bool + 'env + Send,
+    {
+        ParallelFilter {
+            iter: self
+                .0
+                .with_scoped(scope, move |v| if f(&v) { Some(v) } else { None }),
+        }
     }
 }
 
 /// Like [`std::iter::Filter`] but multi-threaded
-pub struct ParallelFilter<'env, 'scope, I>
+pub struct ParallelFilter<I>
 where
     I: Iterator,
 {
     // the iterator we wrapped
-    iter:
-        ParallelMap<'env, 'scope, I, Option<I::Item>, Box<dyn FilterMapFn<I::Item> + Send + 'env>>,
+    iter: ParallelMap<I, Option<I::Item>>,
 }
 
-impl<I> ParallelFilter<'static, 'static, I>
+impl<I> Iterator for ParallelFilter<I>
 where
     I: Iterator,
-{
-    pub fn new<F>(iter: I, mut f: F) -> ParallelFilter<'static, 'static, I>
-    where
-        F: FnMut(&I::Item) -> bool + Send + 'static + Clone,
-        I::Item: Send + 'static,
-    {
-        ParallelFilter {
-            iter: ParallelMap::new(
-                iter,
-                Box::new(move |item| if (f)(&item) { Some(item) } else { None })
-                    as Box<dyn FilterMapFn<I::Item> + Send + 'static>,
-            ),
-        }
-    }
-}
-
-impl<'env, 'scope, I> ParallelFilter<'env, 'scope, I>
-where
-    I: Iterator + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
-    'env: 'scope,
-{
-    pub fn new_scoped<F>(
-        iter: I,
-        scope: &'scope Scope<'env>,
-        mut f: F,
-    ) -> ParallelFilter<'env, 'scope, I>
-    where
-        F: FnMut(&I::Item) -> bool + Send + 'env + 'scope + Clone,
-    {
-        ParallelFilter {
-            iter: ParallelMap::new_scoped(
-                iter,
-                scope,
-                Box::new(move |item| if (f)(&item) { Some(item) } else { None })
-                    as Box<dyn FilterMapFn<I::Item> + Send + 'env>,
-            ),
-        }
-    }
-    /// Start the background workers eagerly, without waiting for a first [`Iterator::next`] call.
-    ///
-    /// See [`ParallelMap::started`].
-    pub fn started(self) -> Self {
-        Self {
-            iter: self.iter.started(),
-        }
-    }
-
-    /// Set number of threads to use manually.
-    ///
-    /// See [`ParallelMap::threads`].
-    pub fn threads(self, num_threads: usize) -> Self {
-        Self {
-            iter: self.iter.threads(num_threads),
-        }
-    }
-
-    /// Set max number of items in flight
-    ///
-    /// See [`ParallelMap::max_in_flight`].
-    pub fn max_in_flight(self, max_in_flight: usize) -> Self {
-        Self {
-            iter: self.iter.max_in_flight(max_in_flight),
-        }
-    }
-}
-
-impl<'env, 'scope, I> Iterator for ParallelFilter<'env, 'scope, I>
-where
-    I: Iterator + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
-    'env: 'scope,
+    I::Item: Send,
 {
     type Item = I::Item;
 

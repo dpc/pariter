@@ -44,10 +44,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                         || sample.clone(),
                         move |v| {
                             v.into_iter()
-                                .parallel_map(move |i| {
-                                    black_box(fibonacci(black_box(fib_size)) + i)
-                                })
+                                .parallel_map_custom()
                                 .threads(threads)
+                                .with(move |i| black_box(fibonacci(black_box(fib_size)) + i))
                                 .collect::<Vec<_>>()
                         },
                         BatchSize::LargeInput,

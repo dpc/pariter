@@ -1,85 +1,109 @@
+use crossbeam_channel::Sender;
+
 use crate::Scope;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{
+    marker::PhantomData,
+    sync::{atomic::AtomicBool, Arc},
+    thread,
+};
 
 use crate::DropIndicator;
 
+pub struct ReadaheadBuilder<I>
+where
+    I: Iterator,
+{
+    // the iterator we wrapped
+    iter: I,
+    // max number of items in flight
+    buffer_size: Option<usize>,
+}
+
+impl<I> ReadaheadBuilder<I>
+where
+    I: Iterator,
+{
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            buffer_size: None,
+        }
+    }
+
+    pub fn buffer_size(self, num: usize) -> Self {
+        Self {
+            buffer_size: Some(num),
+            ..self
+        }
+    }
+
+    fn with_common(self) -> (Readahead<I>, Sender<I::Item>, I)
+    where
+        I: Iterator,
+    {
+        let buffer_size = self.buffer_size.unwrap_or(0);
+
+        let (tx, rx) = crossbeam_channel::bounded(buffer_size);
+        (
+            Readahead {
+                _iter_marker: PhantomData,
+                iter_size_hint: self.iter.size_hint(),
+                inner: Some(ReadaheadInner { rx }),
+                worker_panicked: Arc::new(AtomicBool::new(false)),
+            },
+            tx,
+            self.iter,
+        )
+    }
+
+    pub fn with(self) -> Readahead<I>
+    where
+        I: Iterator + 'static + Send,
+        I::Item: Send + 'static,
+    {
+        let (ret, tx, mut iter) = self.with_common();
+
+        let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
+        thread::spawn(move || {
+            while let Some(i) = iter.next() {
+                // don't panic if the receiver disconnects
+                let _ = tx.send(i);
+            }
+            drop_indicator.cancel();
+        });
+
+        ret
+    }
+
+    pub fn with_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<I>
+    where
+        I: Iterator + 'env + Send,
+        I::Item: Send + 'env,
+    {
+        let (ret, tx, mut iter) = self.with_common();
+
+        let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
+        scope.spawn(move |_scope| {
+            while let Some(i) = iter.next() {
+                // don't panic if the receiver disconnects
+                let _ = tx.send(i);
+            }
+            drop_indicator.cancel();
+        });
+
+        ret
+    }
+}
 /// And iterator that provides parallelism
 /// by running the inner iterator in another thread.
-pub struct Readahead<'env, 'scope, I>
+pub struct Readahead<I>
 where
     I: Iterator,
 {
-    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + 'scope>,
-
-    iter: Option<I>,
+    _iter_marker: PhantomData<I>,
     iter_size_hint: (usize, Option<usize>),
-    buffer_size: usize,
     inner: Option<ReadaheadInner<I>>,
     worker_panicked: Arc<AtomicBool>,
-}
-
-impl<I> Readahead<'static, 'static, I>
-where
-    I: Iterator,
-    I: Send + 'static,
-    I::Item: Send + 'static,
-{
-    pub fn new(iter: I, buffer_size: usize) -> Self {
-        Self {
-            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'static>| {
-                std::thread::spawn(move || f());
-            }) as Box<dyn Fn(_) + 'static>,
-
-            iter_size_hint: iter.size_hint(),
-            iter: Some(iter),
-            buffer_size,
-            inner: None,
-            worker_panicked: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
-impl<'env, 'scope, I> Readahead<'env, 'scope, I>
-where
-    I: Iterator,
-    I: Send + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
-{
-    pub fn new_scoped(scope: &'scope Scope<'env>, iter: I, buffer_size: usize) -> Self {
-        Self {
-            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'env>| {
-                scope.spawn(move |_| f());
-            }) as Box<(dyn Fn(_) + 'scope)>,
-
-            iter_size_hint: iter.size_hint(),
-            iter: Some(iter),
-            buffer_size,
-            inner: None,
-            worker_panicked: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Start the background worker eagerly, without waiting for a first [`Iterator::next`] call.
-    pub fn started(mut self) -> Self {
-        self.ensure_started();
-        self
-    }
-
-    fn ensure_started(&mut self) {
-        if self.inner.is_none() {
-            let (tx, rx) = crossbeam_channel::bounded(self.buffer_size);
-
-            let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
-            let mut iter = self.iter.take().expect("iter empty?!");
-            (self.spawn_fn)(Box::new(move || {
-                while let Some(i) = iter.next() {
-                    // don't panic if the receiver disconnects
-                    let _ = tx.send(i);
-                }
-                drop_indicator.cancel();
-            }));
-            self.inner = Some(ReadaheadInner { rx });
-        }
-    }
 }
 
 struct ReadaheadInner<I>
@@ -89,17 +113,15 @@ where
     rx: crossbeam_channel::Receiver<I::Item>,
 }
 
-impl<'env, 'scope, I> Iterator for Readahead<'env, 'scope, I>
+impl<I> Iterator for Readahead<I>
 where
-    I: Iterator + 'env + 'scope,
-    I: Send + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
+    I: Iterator,
+    I: Send,
+    I::Item: Send,
 {
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.ensure_started();
-
         match self.inner.as_ref().expect("thread started").rx.recv() {
             Ok(i) => Some(i),
             Err(crossbeam_channel::RecvError) => {

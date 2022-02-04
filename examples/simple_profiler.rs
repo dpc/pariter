@@ -62,7 +62,6 @@ fn main() {
             })
             .readahead_scoped_profiled(
                 scope,
-                0,
                 dpc_pariter::TotalTimeProfiler::periodically_millis(2_000, || {
                     eprintln!("Blocked on sending")
                 }),
@@ -81,7 +80,7 @@ fn main() {
 
     (0..22)
         .profile_egress(StderrMsgProfiler::new("sending"))
-        .readahead(0)
+        .readahead()
         .profile_ingress(StderrMsgProfiler::new("receiving"))
         .for_each(|i| {
             println!("{i}");
@@ -98,7 +97,6 @@ fn main() {
             })
             .readahead_scoped_profiled(
                 scope,
-                0,
                 StderrMsgProfiler::new("sending2"),
                 StderrMsgProfiler::new("receiving2"),
             )

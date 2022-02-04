@@ -1,6 +1,9 @@
+use crossbeam_channel::{Receiver, Sender};
+
 use super::{DropIndicator, Scope};
 
 use std::{
+    cmp,
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
@@ -13,13 +16,161 @@ struct ParallelMapInner<I, O> {
     rx: crossbeam_channel::Receiver<(usize, O)>,
 }
 
-/// Like [`std::iter::Map`] but multi-threaded
-pub struct ParallelMap<'env, 'scope, I, O, F>
+pub struct ParallelMapBuilder<I>
 where
     I: Iterator,
 {
-    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + Send + 'scope>,
+    // the iterator we wrapped
+    iter: I,
+    // number of worker threads to use
+    num_threads: Option<usize>,
+    // max number of items in flight
+    buffer_size: Option<usize>,
+}
 
+impl<I> ParallelMapBuilder<I>
+where
+    I: Iterator,
+{
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            num_threads: None,
+            buffer_size: None,
+        }
+    }
+
+    pub fn threads(self, num: usize) -> Self {
+        Self {
+            num_threads: Some(num),
+            ..self
+        }
+    }
+    pub fn buffer_size(self, num: usize) -> Self {
+        Self {
+            buffer_size: Some(num),
+            ..self
+        }
+    }
+
+    fn num_threads<T: Into<Option<usize>>>(num_threads: T) -> usize {
+        let mut num = num_threads.into().unwrap_or(0);
+        if num == 0 {
+            num = num_cpus::get();
+        }
+        if num == 0 {
+            num = 1
+        }
+        num
+    }
+
+    fn with_common<O>(
+        self,
+    ) -> (
+        ParallelMap<I, O>,
+        Receiver<(usize, I::Item)>,
+        Sender<(usize, O)>,
+    )
+    where
+        I: Iterator,
+    {
+        let num_threads = Self::num_threads(self.num_threads);
+        let buffer_size = cmp::max(1, self.buffer_size.unwrap_or(num_threads * 2));
+
+        // Note: we have enought capacity on both ends to hold all items
+        // in progress, though the actual amount of items in flight is controlled
+        // by `pump_tx`.
+        let (in_tx, in_rx) = crossbeam_channel::bounded(buffer_size);
+        let (out_tx, out_rx) = crossbeam_channel::bounded(buffer_size);
+
+        (
+            ParallelMap {
+                iter: self.iter,
+                iter_done: false,
+                worker_panicked: Arc::new(AtomicBool::new(false)),
+                num_threads,
+                buffer_size,
+                out_of_order: HashMap::new(),
+                next_tx_i: 0,
+                next_rx_i: 0,
+                inner: Some(ParallelMapInner {
+                    tx: Some(in_tx),
+                    rx: out_rx,
+                }),
+            },
+            in_rx,
+            out_tx,
+        )
+    }
+
+    pub fn with<F, O>(self, f: F) -> ParallelMap<I, O>
+    where
+        I: Iterator + 'static,
+        F: 'static + Send + Clone,
+        O: Send + 'static,
+        I::Item: Send + 'static,
+        F: FnMut(I::Item) -> O,
+    {
+        let (ret, in_rx, out_tx) = self.with_common();
+
+        for _ in 0..ret.num_threads {
+            let in_rx = in_rx.clone();
+            let out_tx = out_tx.clone();
+            let mut f = f.clone();
+            let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
+
+            std::thread::spawn(move || {
+                for (i, item) in in_rx.into_iter() {
+                    // we ignore send failures, if the receiver is gone
+                    // we just throw the work away
+                    let _ = out_tx.send((i, (f)(item)));
+                }
+                drop_indicator.cancel();
+            });
+        }
+
+        ret
+    }
+
+    pub fn with_scoped<'env, 'scope, F, O>(
+        self,
+        scope: &'scope Scope<'env>,
+        f: F,
+    ) -> ParallelMap<I, O>
+    where
+        I: Iterator + 'env,
+        F: 'env + Send + Clone,
+        O: Send + 'env,
+        I::Item: Send + 'env,
+        F: FnMut(I::Item) -> O,
+    {
+        let (ret, in_rx, out_tx) = self.with_common();
+
+        for _ in 0..ret.num_threads {
+            let in_rx = in_rx.clone();
+            let out_tx = out_tx.clone();
+            let mut f = f.clone();
+            let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
+
+            scope.spawn(move |_scope| {
+                for (i, item) in in_rx.into_iter() {
+                    // we ignore send failures, if the receiver is gone
+                    // we just throw the work away
+                    let _ = out_tx.send((i, (f)(item)));
+                }
+                drop_indicator.cancel();
+            });
+        }
+
+        ret
+    }
+}
+
+/// Like [`std::iter::Map`] but multi-threaded
+pub struct ParallelMap<I, O>
+where
+    I: Iterator,
+{
     // the iterator we wrapped
     iter: I,
     // is `iter` exhausted
@@ -27,7 +178,7 @@ where
     // number of worker threads to use
     num_threads: usize,
     // max number of items in flight
-    max_in_flight: usize,
+    buffer_size: usize,
     /// the id of the work we are going to send next
     next_tx_i: usize,
     /// the id of response we are waiting for
@@ -36,155 +187,23 @@ where
     worker_panicked: Arc<AtomicBool>,
     /// responses we received before we needed them
     out_of_order: HashMap<usize, O>,
-    /// the function this map applies
-    f: F,
     // stuff we created when we started workers
     inner: Option<ParallelMapInner<I::Item, O>>,
 }
 
-impl<I, O, F> ParallelMap<'static, 'static, I, O, F>
+impl<I, O> ParallelMap<I, O>
 where
     I: Iterator,
-    F: Send + 'static,
+    I::Item: Send,
+    O: Send,
 {
-    pub fn new(iter: I, f: F) -> Self {
-        Self {
-            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'static>| {
-                std::thread::spawn(move || f());
-            }) as Box<dyn Fn(_) + Send + 'static>,
-            iter,
-            iter_done: false,
-            worker_panicked: Arc::new(AtomicBool::new(false)),
-            f,
-            num_threads: 0,
-            max_in_flight: 0,
-            out_of_order: HashMap::new(),
-            next_tx_i: 0,
-            next_rx_i: 0,
-            inner: None,
-        }
-    }
-}
-
-impl<'env, 'scope, I, O, F> ParallelMap<'env, 'scope, I, O, F>
-where
-    I: Iterator + 'env + 'scope,
-    F: 'env + 'scope + Send,
-{
-    pub fn new_scoped(iter: I, scope: &'scope Scope<'env>, f: F) -> Self {
-        Self {
-            spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'env>| {
-                scope.spawn(move |_| f());
-            }) as Box<(dyn Fn(_) + Send + 'scope)>,
-
-            iter,
-            iter_done: false,
-            worker_panicked: Arc::new(AtomicBool::new(false)),
-            f,
-            num_threads: 0,
-            max_in_flight: 0,
-            out_of_order: HashMap::new(),
-            next_tx_i: 0,
-            next_rx_i: 0,
-            inner: None,
-        }
-    }
-
-    /// Set number of threads to use manually.
-    ///
-    /// Default or `0` means autodection.
-    pub fn threads(self, num_threads: usize) -> Self {
-        Self {
-            num_threads: num_threads,
-            ..self
-        }
-    }
-
-    /// Set max number of items in flight
-    ///
-    /// Default or `0` means twice as many as number of threads.
-    ///
-    /// Larger values might waste some memory, smaller might lead
-    /// to worker threads being under-utilizied.
-    pub fn max_in_flight(self, max_in_flight: usize) -> Self {
-        Self {
-            max_in_flight: max_in_flight,
-            ..self
-        }
-    }
-}
-
-impl<'env, 'scope, I, O, F> ParallelMap<'env, 'scope, I, O, F>
-where
-    I: Iterator + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
-    O: Send + 'env + 'scope,
-    F: FnMut(I::Item) -> O + 'env + 'scope,
-    F: Clone + Send + 'env + 'scope,
-{
-    /// Start the background workers eagerly, without waiting for a first [`Iterator::next`] call.
-    ///
-    /// Normally, like any other good Rust iterator,
-    /// [`ParallelMap`] will not perform any work until it
-    /// is polled for an item.
-    ///
-    /// Note: After the first element was requested, the
-    /// whole point of a parallel processing is to handle
-    /// them ahead of time, so multiple items will be pulled from the
-    /// inner iterator without waiting.
-    pub fn started(mut self) -> Self {
-        self.ensure_started();
-        self
-    }
-
-    fn ensure_started(&mut self) {
-        if self.inner.is_none() {
-            if self.num_threads == 0 {
-                self.num_threads = num_cpus::get();
-            }
-            if self.num_threads == 0 {
-                panic!("Could not detect number of threads");
-            }
-
-            if self.max_in_flight == 0 {
-                self.max_in_flight = 2 * self.num_threads;
-            }
-
-            // Note: we have enought capacity on both ends to hold all items
-            // in progress, though the actual amount of items in flight is controlled
-            // by `pump_tx`.
-            let (in_tx, in_rx) = crossbeam_channel::bounded(self.max_in_flight);
-            let (out_tx, out_rx) = crossbeam_channel::bounded(self.max_in_flight);
-            self.inner = Some(ParallelMapInner {
-                tx: Some(in_tx),
-                rx: out_rx,
-            });
-            for _ in 0..self.num_threads {
-                let in_rx = in_rx.clone();
-                let out_tx = out_tx.clone();
-                let mut f = self.f.clone();
-                let drop_indicator = DropIndicator::new(self.worker_panicked.clone());
-
-                (self.spawn_fn)(Box::new(move || {
-                    for (i, item) in in_rx.into_iter() {
-                        // we ignore send failures, if the receiver is gone
-                        // we just throw the work away
-                        let _ = out_tx.send((i, (f)(item)));
-                    }
-                    drop_indicator.cancel();
-                }) as Box<dyn FnOnce() + Send>);
-            }
-            self.pump_tx();
-        }
-    }
-
     /// Fill the worker incoming queue with work
     fn pump_tx(&mut self) {
         if self.iter_done {
             return;
         }
 
-        while self.next_tx_i < self.next_rx_i + self.max_in_flight {
+        while self.next_tx_i < self.next_rx_i + self.buffer_size {
             if let Some(item) = self.iter.next() {
                 self.inner
                     .as_ref()
@@ -204,18 +223,16 @@ where
     }
 }
 
-impl<'env, 'scope, I, O, F> Iterator for ParallelMap<'env, 'scope, I, O, F>
+impl<I, O> Iterator for ParallelMap<I, O>
 where
-    I: Iterator + 'env + 'scope,
-    I::Item: Send + 'env + 'scope,
-    O: Send + 'env + 'scope,
-    F: FnMut(I::Item) -> O + 'env + 'scope,
-    F: Clone + Send,
+    I: Iterator,
+    I::Item: Send,
+    O: Send,
 {
     type Item = O;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.ensure_started();
+        self.pump_tx();
 
         loop {
             // inner iterator is done, and all work sent was already received back

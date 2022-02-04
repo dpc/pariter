@@ -34,7 +34,6 @@ where
 ///     (0..22)
 ///         .readahead_scoped_profiled(
 ///             scope,
-///             0,
 ///             TotalTimeProfiler::periodically_millis(10_000, || eprintln!("Blocked on sending")),
 ///             TotalTimeProfiler::periodically_millis(10_000, || eprintln!("Blocked on receving")),
 ///         )

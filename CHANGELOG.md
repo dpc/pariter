@@ -14,6 +14,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Profiling methods like `profile_egress`, `profile_ingress`, and more
 - `readahead_scoped`
 
+## Changed
+
+- Slight APIs changes to improve scoped utilities
+
 ## [0.3.0](https://github.com/dpc/pariter/compare/v0.2.0...v0.3.0) - 2022-01-08
 
 ### Added
