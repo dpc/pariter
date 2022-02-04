@@ -18,7 +18,7 @@ pub struct ParallelMap<'env, 'scope, I, O, F>
 where
     I: Iterator,
 {
-    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + 'scope>,
+    spawn_fn: Box<dyn Fn(Box<dyn FnOnce() + Send + 'env>) + Send + 'scope>,
 
     // the iterator we wrapped
     iter: I,
@@ -51,7 +51,7 @@ where
         Self {
             spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'static>| {
                 std::thread::spawn(move || f());
-            }) as Box<dyn Fn(_) + 'static>,
+            }) as Box<dyn Fn(_) + Send + 'static>,
             iter,
             iter_done: false,
             worker_panicked: Arc::new(AtomicBool::new(false)),
@@ -75,7 +75,7 @@ where
         Self {
             spawn_fn: Box::new(move |f: Box<dyn FnOnce() + Send + 'env>| {
                 scope.spawn(move |_| f());
-            }) as Box<(dyn Fn(_) + 'scope)>,
+            }) as Box<(dyn Fn(_) + Send + 'scope)>,
 
             iter,
             iter_done: false,
