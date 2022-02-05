@@ -17,6 +17,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ## Changed
 
 - Slight APIs changes to improve scoped utilities
+- Default thread num to equal num of physical, not virtual, CPU cores
 
 ## [0.3.0](https://github.com/dpc/pariter/compare/v0.2.0...v0.3.0) - 2022-01-08
 
