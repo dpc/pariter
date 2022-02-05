@@ -10,7 +10,8 @@ for supported operations.
   * lazy, somewhat like single-threaded iterators
   * panic propagation
 * support for iterating over borrowed values using scoped threads
-* backpressure control
+* backpressure
+* profiling methods (useful for analyzing pipelined processing bottlenecks)
 
 ## When to use and alternatives
 
