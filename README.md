@@ -30,17 +30,18 @@ Make sure to parallelize operations that are heavy enough to justify
 overhead of sending data through channels. E.g.
 operations involving IO or some CPU-heavy computation.
 
+You can use `cargo bench` or view the `/docs/bench-report/report/index.html`
+locally for criterion.rs benchmark report, but as a rule of thumb, each call to function
+being parallized should take more than 200ns for the parallelization
+to outweight the overheads.
+
 When you have a lot items **already stored in a collection**,
-that you want to "roll over and perform some mass computation"
+that you want to "roll over and perform some simple computation"
 you probably want to use `rayon` instead. It's a library optimized
 for parallelizing processing of whole chunks of larger set of data,
 which minimizes any per-item overheads.
 A downside of that is that [converting `rayon`'s iterators back to ordered
 sequencial iterator is non-trivial](https://github.com/rayon-rs/rayon/issues/210).
-
-There are alternative libraries somewhat like this, but I did not
-find any that I'd like API and/or implementation wise, so I wrote
-my own.
 
 ## Usage
 
