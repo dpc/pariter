@@ -56,7 +56,7 @@ where
     fn num_threads<T: Into<Option<usize>>>(num_threads: T) -> usize {
         let mut num = num_threads.into().unwrap_or(0);
         if num == 0 {
-            num = num_cpus::get();
+            num = num_cpus::get_physical();
         }
         if num == 0 {
             num = 1
