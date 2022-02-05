@@ -44,6 +44,7 @@
           nativeBuildInputs = (with pkgs;
             [
               pkgconfig
+              gnuplot
               fenix-pkgs.rust-analyzer
               fenix-channel.rustfmt
               fenix-channel.rustc

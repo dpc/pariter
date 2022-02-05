@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use dpc_pariter::IteratorExt;
 
 #[inline]
@@ -14,13 +14,21 @@ pub fn sample_vec(len: u64) -> Vec<u64> {
     (0..len).collect()
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
-    let fib_size = 18;
-    for sample_size in [10, 100, 1_000, 10_000] {
-        let sample = sample_vec(sample_size);
-        c.bench_function(
-            &format!("map; size: {}; fib: {}", sample_size, fib_size),
-            |b| {
+pub fn map_fibonacci(c: &mut Criterion) {
+    for fib_size in [17, 18, 19] {
+        for sample_size in [10, 100, 1_000, 10_000] {
+            let sample = sample_vec(sample_size);
+
+            let mut group = c.benchmark_group(format!(
+                "map-fibonacci; vec-size: {}; fib({});",
+                sample_size, fib_size
+            ));
+            group.throughput(criterion::Throughput::Elements(sample_size));
+            group.bench_with_input(BenchmarkId::new("single-fib", 1), &1, |b, _i| {
+                b.iter(|| black_box(fibonacci(black_box(fib_size))));
+            });
+
+            group.bench_with_input(BenchmarkId::new("map", 1), &1, |b, _i| {
                 b.iter_batched(
                     || sample.clone(),
                     move |v| {
@@ -28,34 +36,32 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                             .map(move |i| black_box(fibonacci(black_box(fib_size)) + i))
                             .collect::<Vec<_>>()
                     },
-                    BatchSize::LargeInput,
+                    BatchSize::SmallInput,
                 )
-            },
-        );
+            });
 
-        for threads in [1, 2, 4, 8] {
-            c.bench_function(
-                &format!(
-                    "parallel_map; size: {}; fib: {}; threads: {}",
-                    sample_size, fib_size, threads
-                ),
-                |b| {
-                    b.iter_batched(
-                        || sample.clone(),
-                        move |v| {
-                            v.into_iter()
-                                .parallel_map_custom()
-                                .threads(threads)
-                                .with(move |i| black_box(fibonacci(black_box(fib_size)) + i))
-                                .collect::<Vec<_>>()
-                        },
-                        BatchSize::LargeInput,
-                    )
-                },
-            );
+            for threads in [1, 2, 4, 8] {
+                group.bench_with_input(
+                    BenchmarkId::new("parallel_map", threads),
+                    &threads,
+                    |b, threads| {
+                        b.iter_batched(
+                            || sample.clone(),
+                            move |v| {
+                                v.into_iter()
+                                    .parallel_map_custom()
+                                    .threads(*threads)
+                                    .with(move |i| black_box(fibonacci(black_box(fib_size)) + i))
+                                    .collect::<Vec<_>>()
+                            },
+                            BatchSize::SmallInput,
+                        )
+                    },
+                );
+            }
         }
     }
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(benches, map_fibonacci);
 criterion_main!(benches);
