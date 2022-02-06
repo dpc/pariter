@@ -1,7 +1,4 @@
-use criterion::{
-    black_box, criterion_group, criterion_main, AxisScale, BatchSize, BenchmarkId, Criterion,
-    PlotConfiguration,
-};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use dpc_pariter::IteratorExt;
 
 #[inline]
@@ -20,8 +17,6 @@ pub fn sample_vec(len: u64) -> Vec<u64> {
 pub fn map_fibonacci(c: &mut Criterion) {
     for fib_size in [10, 11, 12] {
         let mut group = c.benchmark_group(format!("fibonacci({})", fib_size));
-
-        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
         for num_elements in [1, 100, 1_000, 10_000, 100_000] {
             let sample = sample_vec(num_elements);
