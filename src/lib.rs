@@ -62,6 +62,9 @@ pub trait IteratorExt {
         of(ParallelMapBuilder::new(self)).with(f)
     }
 
+    /// A version of [`parallel_map`] supporting iterating over
+    /// borrowed values.
+    ///
     /// See [`IteratorExt::parallel_map`]
     fn parallel_map_scoped<'env, 'scope, F, O>(
         self,
@@ -79,7 +82,7 @@ pub trait IteratorExt {
         ParallelMapBuilder::new(self).with_scoped(scope, f)
     }
 
-    /// See [`IteratorExt::parallel_map`]
+    /// See [`IteratorExt::parallel_map_scoped`]
     fn parallel_map_scoped_custom<'env, 'scope, F, O, OF>(
         self,
         scope: &'scope Scope<'env>,
