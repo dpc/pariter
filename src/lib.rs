@@ -39,7 +39,10 @@ pub trait IteratorExt {
     fn parallel_map_custom(self) -> ParallelMapBuilder<Self>
     where
         Self: Sized,
-        Self: Iterator;
+        Self: Iterator,
+    {
+        ParallelMapBuilder::new(self)
+    }
 
     /// See [`IteratorExt::parallel_map_custom`]
     fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O>
@@ -77,7 +80,10 @@ pub trait IteratorExt {
     fn parallel_filter_custom(self) -> ParallelFilterBuilder<Self>
     where
         Self: Sized,
-        Self: Iterator;
+        Self: Iterator,
+    {
+        ParallelFilterBuilder::new(self)
+    }
 
     /// See [`IteratorExt::parallel_filter_custom`]
     fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self>
@@ -122,7 +128,10 @@ pub trait IteratorExt {
     where
         Self: Iterator + Send + 'static,
         Self: Sized,
-        Self::Item: Send + 'static;
+        Self::Item: Send + 'static,
+    {
+        ReadaheadBuilder::new(self).with()
+    }
 
     /// Scoped version of [`IteratorExt::readahead`]
     ///
@@ -134,21 +143,29 @@ pub trait IteratorExt {
     where
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
-        Self::Item: Send + 'env + 'scope + Send;
+        Self::Item: Send + 'env + 'scope + Send,
+    {
+        ReadaheadBuilder::new(self).with_scoped(scope)
+    }
 
     fn readahead_custom(self) -> ReadaheadBuilder<Self>
     where
         Self: Iterator,
         Self: Sized + Send,
-        Self::Item: Send;
-
+        Self::Item: Send,
+    {
+        ReadaheadBuilder::new(self)
+    }
     /// Profile the time it takes downstream iterator step to consume the returned items.
     ///
     /// See [`ProfileEgress`] and [`profile::Profiler`].
     fn profile_egress<P: profile::Profiler>(self, profiler: P) -> ProfileEgress<Self, P>
     where
         Self: Iterator,
-        Self: Sized;
+        Self: Sized,
+    {
+        ProfileEgress::new(self, profiler)
+    }
 
     /// Profile the time it takes upstream iterator step to produce the returned items.
     ///
@@ -156,7 +173,10 @@ pub trait IteratorExt {
     fn profile_ingress<P: profile::Profiler>(self, profiler: P) -> ProfileIngress<Self, P>
     where
         Self: Iterator,
-        Self: Sized;
+        Self: Sized,
+    {
+        ProfileIngress::new(self, profiler)
+    }
 
     /// Profiled version of [`IteratorExt::readahead`]
     ///
@@ -173,7 +193,12 @@ pub trait IteratorExt {
         Self: Sized,
         Self: Send + 'static,
         Self::Item: Send + 'static,
-        TxP: Send + 'static;
+        TxP: Send + 'static,
+    {
+        self.profile_egress(tx_profiler)
+            .readahead()
+            .profile_ingress(rx_profiler)
+    }
 
     /// Profiled version of [`IteratorExt::readahead_scoped`]
     ///
@@ -190,101 +215,6 @@ pub trait IteratorExt {
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
         Self::Item: Send + 'env + 'scope + Send,
-        TxP: Send + 'static;
-}
-
-impl<I> IteratorExt for I
-where
-    I: Iterator,
-{
-    fn parallel_map_custom(self) -> ParallelMapBuilder<Self>
-    where
-        Self: Sized,
-        Self: Iterator,
-    {
-        ParallelMapBuilder::new(self)
-    }
-
-    fn parallel_filter_custom(self) -> ParallelFilterBuilder<Self>
-    where
-        Self: Sized,
-        Self: Iterator,
-    {
-        ParallelFilterBuilder::new(self)
-    }
-
-    fn readahead(self) -> Readahead<Self>
-    where
-        Self: Iterator + Send + 'static,
-        Self: Sized,
-        <Self as Iterator>::Item: Send + 'static,
-    {
-        ReadaheadBuilder::new(self).with()
-    }
-
-    fn readahead_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<Self>
-    where
-        Self: Sized + Send,
-        Self: Iterator + 'env + 'scope,
-        <Self as Iterator>::Item: Send + 'env + 'scope,
-    {
-        ReadaheadBuilder::new(self).with_scoped(scope)
-    }
-
-    fn readahead_custom(self) -> ReadaheadBuilder<Self>
-    where
-        Self: Iterator + Send,
-        Self: Sized,
-        <Self as Iterator>::Item: Send,
-    {
-        ReadaheadBuilder::new(self)
-    }
-
-    fn profile_egress<P: profile::Profiler>(self, profiler: P) -> ProfileEgress<Self, P>
-    where
-        Self: Iterator,
-        Self: Sized,
-    {
-        ProfileEgress::new(self, profiler)
-    }
-
-    fn profile_ingress<P: profile::Profiler>(self, profiler: P) -> ProfileIngress<Self, P>
-    where
-        Self: Iterator,
-        Self: Sized,
-    {
-        ProfileIngress::new(self, profiler)
-    }
-
-    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
-        self,
-        tx_profiler: TxP,
-        rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
-    where
-        Self: Iterator,
-        Self: Sized,
-        Self: Send + 'static,
-        <Self as Iterator>::Item: Send + 'static,
-        TxP: Send + 'static,
-    {
-        self.profile_egress(tx_profiler)
-            .readahead()
-            .profile_ingress(rx_profiler)
-    }
-
-    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
-        self,
-        scope: &'scope Scope<'env>,
-        tx_profiler: TxP,
-        rx_profiler: RxP,
-    ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
-    where
-        Self: Iterator,
-        Self: Sized + Send,
-        Self: Iterator + 'scope + 'env,
-        <Self as Iterator>::Item: Send + 'env + 'scope + Send,
-
         TxP: Send + 'static,
     {
         self.profile_egress(tx_profiler)
@@ -292,6 +222,8 @@ where
             .profile_ingress(rx_profiler)
     }
 }
+
+impl<I> IteratorExt for I where I: Iterator {}
 
 struct DropIndicator {
     canceled: bool,
