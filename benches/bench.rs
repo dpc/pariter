@@ -48,9 +48,10 @@ pub fn map_fibonacci(c: &mut Criterion) {
                             || sample.clone(),
                             move |v| {
                                 v.into_iter()
-                                    .parallel_map_custom()
-                                    .threads(num_threads)
-                                    .with(move |i| black_box(fibonacci(black_box(fib_size)) + i))
+                                    .parallel_map_custom(
+                                        |o| o.threads(num_threads),
+                                        move |i| black_box(fibonacci(black_box(fib_size)) + i),
+                                    )
                                     .collect::<Vec<_>>()
                             },
                             BatchSize::SmallInput,

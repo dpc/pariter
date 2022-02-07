@@ -36,15 +36,6 @@ pub trait IteratorExt {
     ///
     /// No items will be pulled until first time [`ParallelMap`] is pulled for elements with [`ParallelMap::next`].
     /// In that respect, `ParallelMap` behaves like every other iterator and is lazy.
-    fn parallel_map_custom(self) -> ParallelMapBuilder<Self>
-    where
-        Self: Sized,
-        Self: Iterator,
-    {
-        ParallelMapBuilder::new(self)
-    }
-
-    /// See [`IteratorExt::parallel_map_custom`]
     fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O>
     where
         Self: Sized,
@@ -54,10 +45,24 @@ pub trait IteratorExt {
         F: FnMut(Self::Item) -> O,
         O: Send + 'static,
     {
-        self.parallel_map_custom().with(f)
+        ParallelMapBuilder::new(self).with(f)
     }
 
-    /// See [`IteratorExt::parallel_map_custom`]
+    /// See [`IteratorExt::parallel_map`]
+    fn parallel_map_custom<F, O, OF>(self, of: OF, f: F) -> ParallelMap<Self, O>
+    where
+        Self: Sized,
+        Self: Iterator + 'static,
+        F: 'static + Send + Clone,
+        F: FnMut(Self::Item) -> O,
+        Self::Item: Send + 'static,
+        O: Send + 'static,
+        OF: FnOnce(ParallelMapBuilder<Self>) -> ParallelMapBuilder<Self>,
+    {
+        of(ParallelMapBuilder::new(self)).with(f)
+    }
+
+    /// See [`IteratorExt::parallel_map`]
     fn parallel_map_scoped<'env, 'scope, F, O>(
         self,
         scope: &'scope Scope<'env>,
@@ -71,21 +76,31 @@ pub trait IteratorExt {
         F: FnMut(Self::Item) -> O,
         O: Send + 'env,
     {
-        self.parallel_map_custom().with_scoped(scope, f)
+        ParallelMapBuilder::new(self).with_scoped(scope, f)
+    }
+
+    /// See [`IteratorExt::parallel_map`]
+    fn parallel_map_scoped_custom<'env, 'scope, F, O, OF>(
+        self,
+        scope: &'scope Scope<'env>,
+        of: OF,
+        f: F,
+    ) -> ParallelMap<Self, O>
+    where
+        Self: Sized,
+        Self: Iterator + 'env,
+        F: 'env + Send + Clone,
+        Self::Item: Send + 'env,
+        F: FnMut(Self::Item) -> O,
+        O: Send + 'env,
+        OF: FnOnce(ParallelMapBuilder<Self>) -> ParallelMapBuilder<Self>,
+    {
+        of(ParallelMapBuilder::new(self)).with_scoped(scope, f)
     }
 
     /// Run `filter` function in parallel on multiple threads
     ///
     /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
-    fn parallel_filter_custom(self) -> ParallelFilterBuilder<Self>
-    where
-        Self: Sized,
-        Self: Iterator,
-    {
-        ParallelFilterBuilder::new(self)
-    }
-
-    /// See [`IteratorExt::parallel_filter_custom`]
     fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self>
     where
         Self: Sized,
@@ -94,10 +109,23 @@ pub trait IteratorExt {
         Self::Item: Send + 'static,
         F: FnMut(&Self::Item) -> bool,
     {
-        self.parallel_filter_custom().with(f)
+        ParallelFilterBuilder::new(self).with(f)
     }
 
-    /// See [`IteratorExt::parallel_filter_custom`]
+    /// See [`IteratorExt::parallel_filter`]
+    fn parallel_filter_custom<F, OF>(self, of: OF, f: F) -> ParallelFilter<Self>
+    where
+        Self: Sized,
+        Self: Iterator + 'static,
+        F: 'static + Send + Clone,
+        Self::Item: Send + 'static,
+        F: FnMut(&Self::Item) -> bool,
+        OF: FnOnce(ParallelFilterBuilder<Self>) -> ParallelFilterBuilder<Self>,
+    {
+        of(ParallelFilterBuilder::new(self)).with(f)
+    }
+
+    /// See [`IteratorExt::parallel_filter`]
     fn parallel_filter_scoped<'env, 'scope, F>(
         self,
         scope: &'scope Scope<'env>,
@@ -110,9 +138,26 @@ pub trait IteratorExt {
         Self::Item: Send + 'env,
         F: FnMut(&Self::Item) -> bool,
     {
-        self.parallel_filter_custom().with_scoped(scope, f)
+        ParallelFilterBuilder::new(self).with_scoped(scope, f)
     }
 
+    /// See [`IteratorExt::parallel_filter`]
+    fn parallel_filter_scoped_custom<'env, 'scope, F, OF>(
+        self,
+        scope: &'scope Scope<'env>,
+        of: OF,
+        f: F,
+    ) -> ParallelFilter<Self>
+    where
+        Self: Sized,
+        Self: Iterator + 'env,
+        F: 'env + Send + Clone,
+        Self::Item: Send + 'env,
+        F: FnMut(&Self::Item) -> bool,
+        OF: FnOnce(ParallelFilterBuilder<Self>) -> ParallelFilterBuilder<Self>,
+    {
+        of(ParallelFilterBuilder::new(self)).with_scoped(scope, f)
+    }
     /// Run the current iterator in another thread and return elements
     /// through a buffered channel.
     ///
@@ -133,6 +178,16 @@ pub trait IteratorExt {
         ReadaheadBuilder::new(self).with()
     }
 
+    fn readahead_custom<OF>(self, of: OF) -> Readahead<Self>
+    where
+        Self: Iterator,
+        Self: Sized + Send + 'static,
+        Self::Item: Send + 'static,
+        OF: FnOnce(ReadaheadBuilder<Self>) -> ReadaheadBuilder<Self>,
+    {
+        of(ReadaheadBuilder::new(self)).with()
+    }
+
     /// Scoped version of [`IteratorExt::readahead`]
     ///
     /// Use when you want to process in parallel items that contain
@@ -148,14 +203,20 @@ pub trait IteratorExt {
         ReadaheadBuilder::new(self).with_scoped(scope)
     }
 
-    fn readahead_custom(self) -> ReadaheadBuilder<Self>
+    fn readahead_scoped_custom<'env, 'scope, OF>(
+        self,
+        scope: &'scope Scope<'env>,
+        of: OF,
+    ) -> Readahead<Self>
     where
-        Self: Iterator,
         Self: Sized + Send,
-        Self::Item: Send,
+        Self: Iterator + 'scope + 'env,
+        Self::Item: Send + 'env + 'scope + Send,
+        OF: FnOnce(ReadaheadBuilder<Self>) -> ReadaheadBuilder<Self>,
     {
-        ReadaheadBuilder::new(self)
+        of(ReadaheadBuilder::new(self)).with_scoped(scope)
     }
+
     /// Profile the time it takes downstream iterator step to consume the returned items.
     ///
     /// See [`ProfileEgress`] and [`profile::Profiler`].

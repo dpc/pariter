@@ -74,7 +74,7 @@ assert_eq!(
 You can change it to:
 
 ```rust
-use dpc_pariter::IteratorExt;
+use dpc_pariter::IteratorExt as _;
 # fn step_a(x: usize) -> usize {
 #   x * 7
 # }
@@ -112,7 +112,7 @@ If you can't, you can use scoped-threads API from [`crossbeam`] crate:
 
 
 ```rust
-use dpc_pariter::{IteratorExt, scope};
+use dpc_pariter::{IteratorExt as _, scope};
 # fn step_a(x: &usize) -> usize {
 #   *x * 7
 # }
@@ -154,7 +154,20 @@ The additional `scope` argument comes from [`crossbeam::thread::scope`] and is
 there to enforce memory-safety. Just wrap your iterator chain in a `scope`
 wrapper that does not outlive the borrowed value, and everything will work smoothly.
 
+## Customizing settings
 
+If you need to change settings like buffer sizes and number of threads:
+
+```rust
+# use dpc_pariter::IteratorExt as _;
+assert_eq!(
+  (0..10)
+    .map(|x| x + 1)
+    .parallel_filter_custom(|o| o.threads(16), |x| *x == 5)
+    .map(|x| x /2).collect::<Vec<_>>(),
+    vec![2]
+);
+```
 ## Status & plans
 
 I keep needing this exact functionality, so I've cleaned up my
