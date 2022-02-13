@@ -9,7 +9,7 @@ license = "MPL-2.0 OR MIT OR Apache-2.0"
 name = "pariter"
 readme = "README.md"
 repository = "https://github.com/dpc/pariter"
-version = "0.5.0"
+version = "0.5.1"
 
 [[bench]]
 harness = false
