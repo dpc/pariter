@@ -31,10 +31,10 @@
         inherit (fenix-pkgs.minimal) cargo rustc;
       };
     in rec {
-      packages.dpc-pariter = naersk-lib.buildPackage ./.;
+      packages.pariter = naersk-lib.buildPackage ./.;
 
-      defaultPackage = self.packages.${system}.dpc-pariter;
-      defaultApp = self.packages.${system}.dpc-pariter;
+      defaultPackage = self.packages.${system}.pariter;
+      defaultApp = self.packages.${system}.pariter;
 
       # `nix develop`
       devShell = pkgs.mkShell
