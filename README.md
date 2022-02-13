@@ -1,6 +1,6 @@
 # Parallel iterator processing library for Rust
 
-See [`IteratorExt`] ([latest `IteratorExt` on docs.rs](https://docs.rs/pariter/latest/dpc_pariter/trait.IteratorExt.html))
+See [`IteratorExt`] ([latest `IteratorExt` on docs.rs](https://docs.rs/pariter/latest/pariter/trait.IteratorExt.html))
 for supported operations.
 
 ## Notable features
@@ -74,7 +74,7 @@ assert_eq!(
 You can change it to:
 
 ```rust
-use dpc_pariter::IteratorExt as _;
+use pariter::IteratorExt as _;
 # fn step_a(x: usize) -> usize {
 #   x * 7
 # }
@@ -112,7 +112,7 @@ If you can't, you can use scoped-threads API from [`crossbeam`] crate:
 
 
 ```rust
-use dpc_pariter::{IteratorExt as _, scope};
+use pariter::{IteratorExt as _, scope};
 # fn step_a(x: &usize) -> usize {
 #   *x * 7
 # }
@@ -159,7 +159,7 @@ wrapper that does not outlive the borrowed value, and everything will work smoot
 If you need to change settings like buffer sizes and number of threads:
 
 ```rust
-# use dpc_pariter::IteratorExt as _;
+# use pariter::IteratorExt as _;
 assert_eq!(
   (0..10)
     .map(|x| x + 1)

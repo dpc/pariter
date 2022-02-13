@@ -1,4 +1,4 @@
-use dpc_pariter::IteratorExt;
+use pariter::IteratorExt;
 
 use std::time;
 
@@ -26,7 +26,7 @@ impl StderrMsgProfiler {
     }
 }
 
-impl dpc_pariter::Profiler for StderrMsgProfiler {
+impl pariter::Profiler for StderrMsgProfiler {
     fn start(&mut self) {
         self.start = time::Instant::now();
     }
@@ -53,7 +53,7 @@ impl dpc_pariter::Profiler for StderrMsgProfiler {
 }
 
 fn main() {
-    dpc_pariter::scope(|scope| {
+    pariter::scope(|scope| {
         (0..22)
             .map(|i| {
                 // make producting values slow
@@ -62,10 +62,10 @@ fn main() {
             })
             .readahead_scoped_profiled(
                 scope,
-                dpc_pariter::TotalTimeProfiler::periodically_millis(2_000, || {
+                pariter::TotalTimeProfiler::periodically_millis(2_000, || {
                     eprintln!("Blocked on sending")
                 }),
-                dpc_pariter::TotalTimeProfiler::new(|stat| {
+                pariter::TotalTimeProfiler::new(|stat| {
                     eprintln!(
                         "Sending receiving wait time: {}ms",
                         stat.total().as_millis()
@@ -88,7 +88,7 @@ fn main() {
             std::thread::sleep(time::Duration::from_millis(10));
         });
 
-    dpc_pariter::scope(|scope| {
+    pariter::scope(|scope| {
         (0..22)
             .map(|i| {
                 // make producting values slow

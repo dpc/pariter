@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use dpc_pariter::IteratorExt;
+use pariter::IteratorExt;
 
 #[inline]
 fn fibonacci(n: u64) -> u64 {

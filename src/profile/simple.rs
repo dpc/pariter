@@ -28,9 +28,9 @@ where
 /// ## Example
 ///
 /// ```rust
-/// use dpc_pariter::{IteratorExt, TotalTimeProfiler};
+/// use pariter::{IteratorExt, TotalTimeProfiler};
 ///
-/// dpc_pariter::scope(|scope| {
+/// pariter::scope(|scope| {
 ///     (0..22)
 ///         .readahead_scoped_profiled(
 ///             scope,
@@ -59,7 +59,7 @@ where
     /// ## Example
     ///
     /// ```rust
-    /// use dpc_pariter::{IteratorExt, TotalTimeProfiler};
+    /// use pariter::{IteratorExt, TotalTimeProfiler};
     ///
     /// let profiler = TotalTimeProfiler::new(|stats| eprintln!("accumulative sending time so far: {}", stats.total().as_millis()));
     /// ```
