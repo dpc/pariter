@@ -4,7 +4,6 @@ use super::{DropIndicator, Scope};
 
 use std::{
     cmp,
-    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
@@ -90,7 +89,7 @@ where
                 worker_panicked: Arc::new(AtomicBool::new(false)),
                 num_threads,
                 buffer_size,
-                out_of_order: HashMap::new(),
+                out_of_order: Vec::new(),
                 next_tx_i: 0,
                 next_rx_i: 0,
                 inner: Some(ParallelMapInner {
@@ -186,7 +185,7 @@ where
     /// did any worker thread failed us
     worker_panicked: Arc<AtomicBool>,
     /// responses we received before we needed them
-    out_of_order: HashMap<usize, O>,
+    out_of_order: Vec<(usize, O)>,
     // stuff we created when we started workers
     inner: Option<ParallelMapInner<I::Item, O>>,
 }
@@ -241,7 +240,12 @@ where
             }
 
             // check if we didn't receive this item out of order
-            if let Some(item) = self.out_of_order.remove(&self.next_rx_i) {
+            if let Some(index) = self
+                .out_of_order
+                .iter()
+                .position(|(i, _)| (i == &self.next_rx_i))
+            {
+                let item = self.out_of_order.swap_remove(index).1;
                 self.next_rx_i += 1;
                 self.pump_tx();
                 return Some(item);
@@ -263,7 +267,7 @@ where
                         return Some(item);
                     } else {
                         assert!(item_i > self.next_rx_i);
-                        self.out_of_order.insert(item_i, item);
+                        self.out_of_order.push((item_i, item));
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
