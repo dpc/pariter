@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc,
 };
+use std::any::Any;
 
 mod parallel_map;
 pub use self::parallel_map::{ParallelMap, ParallelMapBuilder};
@@ -99,6 +100,27 @@ pub trait IteratorExt {
         OF: FnOnce(ParallelMapBuilder<Self>) -> ParallelMapBuilder<Self>,
     {
         of(ParallelMapBuilder::new(self)).with_scoped(scope, f)
+    }
+
+    /// `iter.parallel_map_for_each(m, f)` is something like `iter.parallel_map(m).for_each(f)`, but allows to borrow stack variables
+    /// (i. e. doesn't require `'static`)
+    fn parallel_map_for_each<Map, ForEach, O>(
+        self,
+        m: Map,
+        f: ForEach,
+    ) -> Result<(), Box<dyn Any + Send + 'static>>
+    where
+        Self: Sized,
+        Self: Iterator,
+        Map: Send + Clone,
+        Self::Item: Send,
+        Map: FnMut(Self::Item) -> O,
+        O: Send,
+        ForEach: FnMut(O),
+    {
+        crossbeam::thread::scope(move |s| {
+            self.parallel_map_scoped(s, m).for_each(f);
+        })
     }
 
     /// Run `filter` function in parallel on multiple threads
