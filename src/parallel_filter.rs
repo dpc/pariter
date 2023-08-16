@@ -21,7 +21,7 @@ where
 
     pub fn with<F>(self, mut f: F) -> ParallelFilter<I>
     where
-        I: Iterator + 'static,
+        I: Iterator,
         F: 'static + Send + Clone,
         I::Item: Send + 'static,
         F: FnMut(&I::Item) -> bool,
@@ -37,7 +37,7 @@ where
         mut f: F,
     ) -> ParallelFilter<I>
     where
-        I: Iterator + 'env,
+        I: Iterator,
         F: 'env + Send + Clone,
         I::Item: Send + 'env,
         F: FnMut(&I::Item) -> bool + 'env + Send,

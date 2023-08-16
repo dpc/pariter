@@ -39,7 +39,7 @@ pub trait IteratorExt {
     fn parallel_map<F, O>(self, f: F) -> ParallelMap<Self, O>
     where
         Self: Sized,
-        Self: Iterator + 'static,
+        Self: Iterator,
         F: 'static + Send + Clone,
         Self::Item: Send + 'static,
         F: FnMut(Self::Item) -> O,
@@ -52,7 +52,7 @@ pub trait IteratorExt {
     fn parallel_map_custom<F, O, OF>(self, of: OF, f: F) -> ParallelMap<Self, O>
     where
         Self: Sized,
-        Self: Iterator + 'static,
+        Self: Iterator,
         F: 'static + Send + Clone,
         F: FnMut(Self::Item) -> O,
         Self::Item: Send + 'static,
@@ -73,7 +73,7 @@ pub trait IteratorExt {
     ) -> ParallelMap<Self, O>
     where
         Self: Sized,
-        Self: Iterator + 'env,
+        Self: Iterator,
         F: 'env + Send + Clone,
         Self::Item: Send + 'env,
         F: FnMut(Self::Item) -> O,
@@ -91,7 +91,7 @@ pub trait IteratorExt {
     ) -> ParallelMap<Self, O>
     where
         Self: Sized,
-        Self: Iterator + 'env,
+        Self: Iterator,
         F: 'env + Send + Clone,
         Self::Item: Send + 'env,
         F: FnMut(Self::Item) -> O,
@@ -107,7 +107,7 @@ pub trait IteratorExt {
     fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self>
     where
         Self: Sized,
-        Self: Iterator + 'static,
+        Self: Iterator,
         F: 'static + Send + Clone,
         Self::Item: Send + 'static,
         F: FnMut(&Self::Item) -> bool,
@@ -119,7 +119,7 @@ pub trait IteratorExt {
     fn parallel_filter_custom<F, OF>(self, of: OF, f: F) -> ParallelFilter<Self>
     where
         Self: Sized,
-        Self: Iterator + 'static,
+        Self: Iterator,
         F: 'static + Send + Clone,
         Self::Item: Send + 'static,
         F: FnMut(&Self::Item) -> bool,
@@ -136,7 +136,7 @@ pub trait IteratorExt {
     ) -> ParallelFilter<Self>
     where
         Self: Sized,
-        Self: Iterator + 'env,
+        Self: Iterator,
         F: 'env + Send + Clone,
         Self::Item: Send + 'env,
         F: FnMut(&Self::Item) -> bool,
@@ -153,7 +153,7 @@ pub trait IteratorExt {
     ) -> ParallelFilter<Self>
     where
         Self: Sized,
-        Self: Iterator + 'env,
+        Self: Iterator,
         F: 'env + Send + Clone,
         Self::Item: Send + 'env,
         F: FnMut(&Self::Item) -> bool,

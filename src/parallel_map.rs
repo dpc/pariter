@@ -104,7 +104,7 @@ where
 
     pub fn with<F, O>(self, f: F) -> ParallelMap<I, O>
     where
-        I: Iterator + 'static,
+        I: Iterator,
         F: 'static + Send + Clone,
         O: Send + 'static,
         I::Item: Send + 'static,
@@ -137,7 +137,7 @@ where
         f: F,
     ) -> ParallelMap<I, O>
     where
-        I: Iterator + 'env,
+        I: Iterator,
         F: 'env + Send + Clone,
         O: Send + 'env,
         I::Item: Send + 'env,
