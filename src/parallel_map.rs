@@ -133,7 +133,7 @@ where
 
     pub fn with_scoped<'env, 'scope, F, O>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         f: F,
     ) -> ParallelMap<I, O>
     where
@@ -151,7 +151,7 @@ where
             let mut f = f.clone();
             let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
 
-            scope.spawn(move |_scope| {
+            scope.spawn(move || {
                 for (i, item) in in_rx.into_iter() {
                     // we ignore send failures, if the receiver is gone
                     // we just throw the work away

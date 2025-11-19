@@ -112,7 +112,7 @@ If you can't, you can use scoped-threads API from [`crossbeam`] crate:
 
 
 ```rust
-use pariter::{IteratorExt as _, scope};
+use pariter::IteratorExt as _;
 # fn step_a(x: &usize) -> usize {
 #   *x * 7
 # }
@@ -126,7 +126,7 @@ use pariter::{IteratorExt as _, scope};
 # }
 let v : Vec<_> = (0..10).collect();
 
-scope(|scope| {
+std::thread::scope(|scope| {
   assert_eq!(
     v
       .iter() // iterating over `&usize` now, `parallel_map` will not work
@@ -140,17 +140,17 @@ scope(|scope| {
 // or:
 
 assert_eq!(
-  scope(|scope| {
+  std::thread::scope(|scope| {
   v
     .iter()
     .parallel_map_scoped(scope, step_a)
     .filter(filter_b)
-    .map(step_c).collect::<Vec<_>>()}).expect("handle errors properly in production code"),
+    .map(step_c).collect::<Vec<_>>()}),
     vec![1, 15, 29, 43, 57]
 );
 ```
 
-The additional `scope` argument comes from [`crossbeam::thread::scope`] and is
+The additional `scope` argument comes from [`std::thread::scope`] and is
 there to enforce memory-safety. Just wrap your iterator chain in a `scope`
 wrapper that does not outlive the borrowed value, and everything will work smoothly.
 

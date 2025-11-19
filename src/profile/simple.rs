@@ -30,7 +30,7 @@ where
 /// ```rust
 /// use pariter::{IteratorExt, TotalTimeProfiler};
 ///
-/// pariter::scope(|scope| {
+/// std::thread::scope(|scope| {
 ///     (0..22)
 ///         .readahead_scoped_profiled(
 ///             scope,
@@ -40,8 +40,7 @@ where
 ///         .for_each(|i| {
 ///             println!("{i}");
 ///         })
-/// })
-/// .expect("thread panicked");
+/// });
 /// ```
 #[derive(Debug)]
 pub struct TotalTimeProfiler<Reporter> {
