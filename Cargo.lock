@@ -319,7 +319,6 @@ version = "0.5.1"
 dependencies = [
  "criterion",
  "crossbeam-channel",
- "num_cpus",
  "quickcheck",
  "quickcheck_macros",
 ]
