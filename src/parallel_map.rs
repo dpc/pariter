@@ -53,14 +53,12 @@ where
     }
 
     fn num_threads<T: Into<Option<usize>>>(num_threads: T) -> usize {
-        let mut num = num_threads.into().unwrap_or(0);
-        if num == 0 {
-            num = num_cpus::get_physical();
+        match num_threads.into() {
+            None | Some(0) => std::thread::available_parallelism()
+                .map(|x| x.get())
+                .unwrap_or(1),
+            Some(n) => n,
         }
-        if num == 0 {
-            num = 1
-        }
-        num
     }
 
     fn with_common<O>(
