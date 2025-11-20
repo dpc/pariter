@@ -18,7 +18,7 @@ pub use self::profile::{
     ProfileEgress, ProfileIngress, Profiler, TotalTimeProfiler, TotalTimeStats,
 };
 
-pub use crossbeam::{scope, thread::Scope};
+use std::thread::Scope;
 
 /// Extension trait for [`std::iter::Iterator`] bringing parallel operations
 ///
@@ -68,7 +68,7 @@ pub trait IteratorExt {
     /// See [`IteratorExt::parallel_map`]
     fn parallel_map_scoped<'env, 'scope, F, O>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         f: F,
     ) -> ParallelMap<Self, O>
     where
@@ -85,7 +85,7 @@ pub trait IteratorExt {
     /// See [`IteratorExt::parallel_map_scoped`]
     fn parallel_map_scoped_custom<'env, 'scope, F, O, OF>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         of: OF,
         f: F,
     ) -> ParallelMap<Self, O>
@@ -131,7 +131,7 @@ pub trait IteratorExt {
     /// See [`IteratorExt::parallel_filter`]
     fn parallel_filter_scoped<'env, 'scope, F>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         f: F,
     ) -> ParallelFilter<Self>
     where
@@ -147,7 +147,7 @@ pub trait IteratorExt {
     /// See [`IteratorExt::parallel_filter`]
     fn parallel_filter_scoped_custom<'env, 'scope, F, OF>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         of: OF,
         f: F,
     ) -> ParallelFilter<Self>
@@ -197,7 +197,7 @@ pub trait IteratorExt {
     /// borrowed references.
     ///
     /// See [`scope`].
-    fn readahead_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<Self>
+    fn readahead_scoped<'env, 'scope>(self, scope: &'scope Scope<'scope, 'env>) -> Readahead<Self>
     where
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
@@ -208,7 +208,7 @@ pub trait IteratorExt {
 
     fn readahead_scoped_custom<'env, 'scope, OF>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         of: OF,
     ) -> Readahead<Self>
     where
@@ -271,7 +271,7 @@ pub trait IteratorExt {
     /// See [`Profiler`] for more info.
     fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         tx_profiler: TxP,
         rx_profiler: RxP,
     ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>

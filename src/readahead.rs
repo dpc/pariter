@@ -75,7 +75,7 @@ where
         ret
     }
 
-    pub fn with_scoped<'env, 'scope>(self, scope: &'scope Scope<'env>) -> Readahead<I>
+    pub fn with_scoped<'env, 'scope>(self, scope: &'scope Scope<'scope, 'env>) -> Readahead<I>
     where
         I: Iterator + 'env + Send,
         I::Item: Send + 'env,
@@ -83,7 +83,7 @@ where
         let (ret, tx, mut iter) = self.with_common();
 
         let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
-        scope.spawn(move |_scope| {
+        scope.spawn(move || {
             while let Some(i) = iter.next() {
                 // don't panic if the receiver disconnects
                 let _ = tx.send(i);

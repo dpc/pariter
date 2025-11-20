@@ -33,7 +33,7 @@ where
 
     pub fn with_scoped<'env, 'scope, F>(
         self,
-        scope: &'scope Scope<'env>,
+        scope: &'scope Scope<'scope, 'env>,
         mut f: F,
     ) -> ParallelFilter<I>
     where

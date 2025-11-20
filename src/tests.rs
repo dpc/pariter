@@ -40,13 +40,12 @@ fn map_vs_map_parallel_double(v: Vec<usize>, threads: usize, max_in_flight: usiz
 #[quickcheck]
 fn map_vs_map_parallel_scoped_double(v: Vec<usize>, threads: usize, max_in_flight: usize) -> bool {
     let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
-    let mp: Vec<usize> = super::scope(|s| {
+    let mp: Vec<usize> = std::thread::scope(|s| {
         v.iter()
             .parallel_map_scoped_custom(s, |o| o.threads(threads % 32), |x| x / 2)
             .parallel_map_scoped_custom(s, |o| o.buffer_size(max_in_flight % 128), |x| x)
             .collect()
-    })
-    .expect("failed");
+    });
 
     m == mp
 }
@@ -74,7 +73,7 @@ fn map_vs_map_parallel_scoped_with_readahead(
     max_in_flight: usize,
 ) -> bool {
     let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
-    let mp: Vec<usize> = super::scope(|s| {
+    let mp: Vec<usize> = std::thread::scope(|s| {
         v.iter()
             .parallel_map_scoped_custom(s, |o| o.threads(threads % 32), |x| x / 2)
             .readahead_scoped(s)
@@ -84,8 +83,7 @@ fn map_vs_map_parallel_scoped_with_readahead(
             .readahead_scoped(s)
             .parallel_map_scoped_custom(s, |o| o.threads(threads % 32), |x| x)
             .collect()
-    })
-    .expect("failed");
+    });
 
     m == mp
 }
@@ -93,7 +91,7 @@ fn map_vs_map_parallel_scoped_with_readahead(
 #[quickcheck]
 fn check_profile_compiles(v: Vec<usize>) -> bool {
     let m: Vec<usize> = v.iter().map(|x| x / 2).collect();
-    let mp: Vec<usize> = super::scope(|s| {
+    let mp: Vec<usize> = std::thread::scope(|s| {
         v.iter()
             .parallel_map_scoped(s, |x| x / 2)
             .profile_egress(TotalTimeProfiler::periodically_millis(10_000, || {
@@ -115,8 +113,7 @@ fn check_profile_compiles(v: Vec<usize>) -> bool {
             .readahead_scoped(s)
             .parallel_map_scoped_custom(s, |o| o, |x| x)
             .collect()
-    })
-    .expect("failed");
+    });
 
     m == mp
 }
@@ -137,13 +134,12 @@ fn iter_vs_readhead(v: Vec<usize>, out: usize) -> bool {
 #[quickcheck]
 fn iter_vs_readhead_scoped(v: Vec<usize>, out: usize) -> bool {
     let m: Vec<_> = v.iter().map(|x| x / 2).collect();
-    let mp: Vec<_> = super::scope(|s| {
+    let mp: Vec<_> = std::thread::scope(|s| {
         v.iter()
             .readahead_scoped_custom(s, |o| o.buffer_size(out % 32))
             .map(|x| x / 2)
             .collect()
-    })
-    .expect("failed");
+    });
 
     m == mp
 }
@@ -163,12 +159,11 @@ fn filter_vs_parallel_filter(v: Vec<usize>) -> bool {
 #[quickcheck]
 fn filter_vs_parallel_filter_scoped(v: Vec<usize>) -> bool {
     let m: Vec<_> = v.iter().filter(|x| *x % 2 == 0).collect();
-    let mp: Vec<_> = super::scope(|s| {
+    let mp: Vec<_> = std::thread::scope(|s| {
         v.iter()
             .parallel_filter_scoped(s, |x| *x % 2 == 0)
             .collect()
-    })
-    .expect("failed");
+    });
 
     m == mp
 }

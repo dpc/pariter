@@ -53,7 +53,7 @@ impl pariter::Profiler for StderrMsgProfiler {
 }
 
 fn main() {
-    pariter::scope(|scope| {
+    () = std::thread::scope(|scope| {
         (0..22)
             .map(|i| {
                 // make producting values slow
@@ -75,8 +75,7 @@ fn main() {
             .for_each(|i| {
                 println!("{i}");
             })
-    })
-    .expect("thread panicked");
+    });
 
     (0..22)
         .profile_egress(StderrMsgProfiler::new("sending"))
@@ -88,7 +87,7 @@ fn main() {
             std::thread::sleep(time::Duration::from_millis(10));
         });
 
-    pariter::scope(|scope| {
+    () = std::thread::scope(|scope| {
         (0..22)
             .map(|i| {
                 // make producting values slow
@@ -103,6 +102,5 @@ fn main() {
             .for_each(|i| {
                 println!("{i}");
             })
-    })
-    .expect("thread panicked");
+    });
 }

@@ -10,8 +10,8 @@
       flake = false;
     };
 
-    fenix = {
-      url = "github:nix-community/fenix";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -21,16 +21,21 @@
     };
   };
 
-  outputs = { self, naersk, nixpkgs, flake-utils, flake-compat, fenix }:
+  outputs = { self, naersk, nixpkgs, flake-utils, flake-compat, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
     let
-      pkgs = nixpkgs.legacyPackages."${system}";
-      fenix-pkgs = fenix.packages.${system};
-      fenix-channel = fenix-pkgs.complete;
-      naersk-lib = naersk.lib."${system}".override {
-        inherit (fenix-pkgs.minimal) cargo rustc;
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ rust-overlay.overlays.default ];
       };
-    in rec {
+      rust-bin = pkgs.rust-bin.stable."1.71.0".default.override {
+        extensions = [ "rust-analyzer" "clippy" ];
+      };
+      naersk-lib = naersk.lib."${system}".override {
+        cargo = rust-bin;
+        rustc = rust-bin;
+      };
+    in {
       packages.pariter = naersk-lib.buildPackage ./.;
 
       defaultPackage = self.packages.${system}.pariter;
@@ -40,16 +45,8 @@
       devShell = pkgs.mkShell
         {
           inputsFrom = builtins.attrValues self.packages.${system};
-          buildInputs = [ pkgs.libsodium pkgs.lzma pkgs.openssl ];
-          nativeBuildInputs = (with pkgs;
-            [
-              pkgconfig
-              gnuplot
-              fenix-pkgs.rust-analyzer
-              fenix-channel.rustfmt
-              fenix-channel.rustc
-            ]);
-          RUST_SRC_PATH = "${fenix-channel.rust-src}/lib/rustlib/src/rust/library";
+          buildInputs = [];
+          nativeBuildInputs = [ rust-bin ];
         };
   });
 }
