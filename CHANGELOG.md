@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+<!-- ## [Unreleased](https://github.com/dpc/pariter/compare/v0.6.0...HEAD) - ReleaseDate -->
+
 <!-- next-url -->
-## [Unreleased](https://github.com/dpc/pariter/compare/v0.3.0...HEAD) - ReleaseDate
+
+## [0.6.0](https://github.com/dpc/pariter/compare/v0.3.0...v0.6.0) - 2026-09-01
+
+I didn't do a good job of updating the CHANGELOG, sorry.
 
 ### Added
 
