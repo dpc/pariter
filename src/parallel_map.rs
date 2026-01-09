@@ -54,13 +54,14 @@ where
 
     fn num_threads<T: Into<Option<usize>>>(num_threads: T) -> usize {
         match num_threads.into() {
-            None | Some(0) => std::thread::available_parallelism()
+            Some(0) | Option::None => std::thread::available_parallelism()
                 .map(|x| x.get())
                 .unwrap_or(1),
             Some(n) => n,
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn with_common<O>(
         self,
     ) -> (
@@ -74,7 +75,7 @@ where
         let num_threads = Self::num_threads(self.num_threads);
         let buffer_size = cmp::max(1, self.buffer_size.unwrap_or(num_threads * 2));
 
-        // Note: we have enought capacity on both ends to hold all items
+        // Note: we have enough capacity on both ends to hold all items
         // in progress, though the actual amount of items in flight is controlled
         // by `pump_tx`.
         let (in_tx, in_rx) = crossbeam_channel::bounded(buffer_size);
@@ -241,7 +242,7 @@ where
             if let Some(index) = self
                 .out_of_order
                 .iter()
-                .position(|(i, _)| (i == &self.next_rx_i))
+                .position(|(i, _)| i == &self.next_rx_i)
             {
                 let item = self.out_of_order.swap_remove(index).1;
                 self.next_rx_i += 1;

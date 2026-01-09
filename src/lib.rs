@@ -103,7 +103,7 @@ pub trait IteratorExt {
 
     /// Run `filter` function in parallel on multiple threads
     ///
-    /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similiar properties.
+    /// A wrapper around [`IteratorExt::parallel_map`] really, so it has similar properties.
     fn parallel_filter<F>(self, f: F) -> ParallelFilter<Self>
     where
         Self: Sized,
@@ -169,7 +169,7 @@ pub trait IteratorExt {
     //
     /// It's a common mistake to use large channel sizes needlessly
     /// in hopes of achieving higher performance. The only benefit
-    /// large buffer size value provides is smooting out the variance
+    /// large buffer size value provides is smoothing out the variance
     /// of the inner iterator returning items. The cost - wasting memory.
     /// In normal circumstances `0` is recommended (the default).
     fn readahead(self) -> Readahead<Self>
@@ -247,17 +247,18 @@ pub trait IteratorExt {
     /// Literally `.profile_egress(tx_profiler).readahead(n).profile_ingress(rx_profiler)`
     ///
     /// See [`Profiler`] for more info.
-    fn readahead_profiled<TxP: profile::Profiler, RxP: profile::Profiler>(
+    fn readahead_profiled<TxP, RxP>(
         self,
         tx_profiler: TxP,
         rx_profiler: RxP,
     ) -> ProfileIngress<Readahead<ProfileEgress<Self, TxP>>, RxP>
     where
+        TxP: profile::Profiler + Send + 'static,
+        RxP: profile::Profiler,
         Self: Iterator,
         Self: Sized,
         Self: Send + 'static,
         Self::Item: Send + 'static,
-        TxP: Send + 'static,
     {
         self.profile_egress(tx_profiler)
             .readahead()
@@ -269,7 +270,7 @@ pub trait IteratorExt {
     /// Literally `.profile_egress(tx_profiler).readahead_scoped(scope, n).profile_ingress(rx_profiler)`
     ///
     /// See [`Profiler`] for more info.
-    fn readahead_scoped_profiled<'env, 'scope, TxP: profile::Profiler, RxP: profile::Profiler>(
+    fn readahead_scoped_profiled<'env, 'scope, TxP, RxP>(
         self,
         scope: &'scope Scope<'scope, 'env>,
         tx_profiler: TxP,
@@ -279,7 +280,9 @@ pub trait IteratorExt {
         Self: Sized + Send,
         Self: Iterator + 'scope + 'env,
         Self::Item: Send + 'env + 'scope + Send,
-        TxP: Send + 'static,
+
+        TxP: profile::Profiler + Send + 'static,
+        RxP: profile::Profiler,
     {
         self.profile_egress(tx_profiler)
             .readahead_scoped(scope)

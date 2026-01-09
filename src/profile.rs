@@ -76,7 +76,7 @@ where
 
         self.profiler.start();
 
-        return item;
+        item
     }
 }
 
@@ -93,6 +93,6 @@ where
         let item = self.inner.next();
 
         self.profiler.end();
-        return item;
+        item
     }
 }

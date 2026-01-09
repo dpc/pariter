@@ -36,7 +36,7 @@ impl pariter::Profiler for StderrMsgProfiler {
             .duration_since(self.start)
             // Even with absolutely no delay waiting for
             // the other side of the channel a send/recv will take some time.
-            // Substract some tiny value to account for it, to prevent
+            // Subtract some tiny value to account for it, to prevent
             // rare but spurious and confusing messages.
             .saturating_sub(time::Duration::from_millis(1));
 
@@ -55,10 +55,9 @@ impl pariter::Profiler for StderrMsgProfiler {
 fn main() {
     () = std::thread::scope(|scope| {
         (0..22)
-            .map(|i| {
-                // make producting values slow
+            .inspect(|_| {
+                // make producing values slow
                 std::thread::sleep(time::Duration::from_millis(10));
-                i
             })
             .readahead_scoped_profiled(
                 scope,
@@ -89,10 +88,9 @@ fn main() {
 
     () = std::thread::scope(|scope| {
         (0..22)
-            .map(|i| {
-                // make producting values slow
+            .inspect(|_| {
+                // make producing values slow
                 std::thread::sleep(time::Duration::from_millis(10));
-                i
             })
             .readahead_scoped_profiled(
                 scope,

@@ -61,11 +61,11 @@ where
         I: Iterator + 'static + Send,
         I::Item: Send + 'static,
     {
-        let (ret, tx, mut iter) = self.with_common();
+        let (ret, tx, iter) = self.with_common();
 
         let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
         thread::spawn(move || {
-            while let Some(i) = iter.next() {
+            for i in iter {
                 // don't panic if the receiver disconnects
                 let _ = tx.send(i);
             }
@@ -80,11 +80,11 @@ where
         I: Iterator + 'env + Send,
         I::Item: Send + 'env,
     {
-        let (ret, tx, mut iter) = self.with_common();
+        let (ret, tx, iter) = self.with_common();
 
         let drop_indicator = DropIndicator::new(ret.worker_panicked.clone());
         scope.spawn(move || {
-            while let Some(i) = iter.next() {
+            for i in iter {
                 // don't panic if the receiver disconnects
                 let _ = tx.send(i);
             }
